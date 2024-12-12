@@ -1,6 +1,8 @@
 # Parzen-PNN-GaussianMixture-Estimator
 ## What it consists of:
-The project consists of estimating a two-dimensional PDF formed by a mixture of an odd number of Gaussians [1,3,5], where the weights for composing the mixture and statistical parameters such as the mean and variance are chosen to avoid PDFs with either excessively overlapping peaks or ones that are too distant from each other.
+- The project consists of estimating a two-dimensional PDF formed by a mixture of an odd number of Gaussians [1,3,5],\
+   where the weights for composing the mixture and statistical parameters such as the mean and variance\
+   are chosen to avoid PDFs with either excessively overlapping peaks or ones that are too distant from each other.
 
 ## How is it done:
 - This is initially done by extracting a set of points from the PDF with intermediate cardinality\
