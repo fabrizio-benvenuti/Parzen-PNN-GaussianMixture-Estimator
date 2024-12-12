@@ -126,8 +126,8 @@ def create_and_display_mixtures(avgs):
             print("Regenerating mixtures...")
 
 # Example usage:
-averages = [[1, 2], [0, 3], [-1, 2], [-2, 1], [2, -1]]
-create_and_display_mixtures(averages)
+#averages = [[1, 2], [0, 3], [-1, 2], [-2, 1], [2, -1]]
+#create_and_display_mixtures(averages)
 gaussian1 = MultivariateGaussian([1, 2], [[1.64553961, 0.89438437],[0.89438437, 0.50355942]])
 gaussian2 = MultivariateGaussian([1, -1], [[0.25808108 ,0.26465206],[0.26465206, 0.38207475]])
 
