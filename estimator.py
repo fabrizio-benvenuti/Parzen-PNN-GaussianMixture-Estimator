@@ -105,9 +105,9 @@ def create_and_display_mixtures(avgs):
         mesh2 = mixture2.get_mesh(plotter.pos)
         mesh3 = mixture3.get_mesh(plotter.pos)
 
-        plotter.ax.plot_surface(plotter.X, plotter.Y, mesh1, alpha=0.7, color='green')
-        plotter2.ax.plot_surface(plotter.X, plotter.Y, mesh2, alpha=0.7, color='blue')
-        plotter3.ax.plot_surface(plotter.X, plotter.Y, mesh3, alpha=0.7, color='red')
+        plotter.ax.plot_surface(plotter.X, plotter.Y, mesh1, alpha=0.7, cmap='plasma')
+        plotter2.ax.plot_surface(plotter.X, plotter.Y, mesh2, alpha=0.7,  cmap='plasma')
+        plotter3.ax.plot_surface(plotter.X, plotter.Y, mesh3, alpha=0.7,  cmap='plasma')
         plotter.show()
         plotter2.show()
         plotter3.show()
@@ -126,8 +126,32 @@ def create_and_display_mixtures(avgs):
             print("Regenerating mixtures...")
 
 # Example usage:
-#averages = [[1, 2], [0, 3], [-1, 2], [-2, 1], [2, -1]]
-#create_and_display_mixtures(averages)
+#selection2
+#averages = [[0,0], [0, 3], [-1.5, 2], [-1.5, 1.5], [2.5, -1]]
+#Gaussian 1 Covariance Matrix:
+#[[0.94097099 1.05259417]
+# [1.05259417 1.20073753]]
+
+#Gaussian 2 Covariance Matrix:
+#[[0.89173198 0.33470235]
+# [0.33470235 0.38692372]]
+
+#Gaussian 3 Covariance Matrix:
+#[[0.21457569 0.32135712]
+# [0.32135712 0.65002944]]
+
+#Gaussian 4 Covariance Matrix:
+#[[0.43888605 0.50296254]
+# [0.50296254 0.74261375]]
+
+#Gaussian 5 Covariance Matrix:
+#[[0.50075723 0.18387308]
+# [0.18387308 0.84264867]]
+
+#Weights:
+#Mixture 1 Weights: [1.0]
+#Mixture 2 Weights: [0.12224253 0.42168723 0.45607024]
+#Mixture 3 Weights: [0.2515471  0.21306928 0.11584905 0.1778627  0.24167188]
 gaussian1 = MultivariateGaussian([1, 2], [[1.64553961, 0.89438437],[0.89438437, 0.50355942]])
 gaussian2 = MultivariateGaussian([1, -1], [[0.25808108 ,0.26465206],[0.26465206, 0.38207475]])
 
