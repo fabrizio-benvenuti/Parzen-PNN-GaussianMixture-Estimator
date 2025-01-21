@@ -1,6 +1,88 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import multivariate_normal
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+class ParzenNeuralNetwork(nn.Module):
+    def __init__(self, input_dim=2, num_kernels=50, bandwidth=1.0):
+        super(ParzenNeuralNetwork, self).__init__()
+        self.bandwidth = nn.Parameter(torch.tensor(bandwidth, dtype=torch.float32))
+        self.kernel_centers = nn.Parameter(torch.randn(num_kernels, input_dim))
+        self.kernel_weights = nn.Parameter(torch.randn(num_kernels))
+
+    def gaussian_kernel(self, x, center):
+        return torch.exp(-torch.sum((x - center) ** 2, dim=1) / (2 * self.bandwidth ** 2))
+
+    def forward(self, x):
+        pdf_values = torch.zeros(x.shape[0], device=x.device)
+        for center, weight in zip(self.kernel_centers, self.kernel_weights):
+            pdf_values += weight * self.gaussian_kernel(x, center)
+        pdf_values = pdf_values / (self.bandwidth * np.sqrt(2 * np.pi) * len(self.kernel_weights))
+        return pdf_values.clamp(min=0)  # Ensure non-negative output for PDF
+
+    def estimate_pdf(self, points, plotter):
+        points_tensor = torch.tensor(points[:, :2], dtype=torch.float32)
+        grid_points = np.c_[plotter.X.ravel(), plotter.Y.ravel()]
+        grid_tensor = torch.tensor(grid_points, dtype=torch.float32)
+        
+        with torch.no_grad():
+            pdf_values = self.forward(grid_tensor).numpy()
+            
+        pdf_mesh = pdf_values.reshape(plotter.X.shape)
+        return pdf_mesh
+
+    def train_network(self, points, learning_rate=0.01, epochs=500):
+        points_tensor = torch.tensor(points[:, :2], dtype=torch.float32)
+        targets_tensor = torch.tensor(points[:, 2], dtype=torch.float32)
+        optimizer = optim.Adam(self.parameters(), lr=learning_rate)
+        criterion = nn.MSELoss()
+
+        for epoch in range(epochs):
+            optimizer.zero_grad()
+            outputs = self.forward(points_tensor)
+            loss = criterion(outputs, targets_tensor)
+            loss.backward()
+            optimizer.step()
+            if epoch % 100 == 0:
+                print(f"Epoch {epoch}: Loss = {loss.item()}")
+
+
+
+class ParzenWindowEstimator:
+    def __init__(self, points, window_size=0.1):
+        if not isinstance(points, np.ndarray) or points.shape[1] != 3:
+            raise ValueError("Points must be a numpy array with shape (n, 3).")
+        self.points = points
+        self.window_size = window_size
+        self.kernel_volume = (window_size ** 2) * (2 * np.pi)
+
+    def estimate_pdf(self, plotter):
+        self.pdf = np.zeros(plotter.pos.shape[:2])
+        num_points = self.points.shape[0]
+
+        for point in self.points:
+            diff = plotter.pos - point[:2]
+            norm = np.sum((diff / self.window_size) ** 2, axis=2)
+            self.pdf += np.exp(-0.5 * norm)
+
+        self.pdf /= (num_points * self.kernel_volume)
+        return self.pdf
+
+    def calculate_error_metrics(self, original_pdf):
+        if self.pdf.shape != original_pdf.shape:
+            raise ValueError("The shapes of estimated_pdf and original_pdf must match.")
+        mse = np.mean((self.pdf - original_pdf) ** 2)
+        rmse = np.sqrt(mse)
+        max_error = np.max(np.abs(self.pdf - original_pdf))
+        mean_abs_error = np.mean(np.abs(self.pdf - original_pdf))
+        return {
+            'Mean Squared Error': mse,
+            'Root Mean Squared Error': rmse,
+            'Max Absolute Error': max_error,
+            'Mean Absolute Error': mean_abs_error
+        }
 
 class MultivariateGaussian:
 	def __init__(self, mu, covariance):
@@ -46,7 +128,7 @@ class GaussianMixture:
 			total_pdf += weight * gaussian.get_distribution().pdf(pos)
 		return total_pdf
 
-	def sample_points(self, num_points):
+	def sample_points(self, num_points:int):
 		points = []
 		for _ in range(num_points):
 			idx = np.random.choice(len(self._gaussians), p=self._weights)
@@ -129,6 +211,7 @@ def create_and_display_mixtures(avgs):
 			print("Regenerating mixtures...")
 
 # Example usage
+torch.autograd.set_detect_anomaly(True)
 weights1 = [1.0]
 weights2 = [0.3,0.3,0.4]
 weights3 = [0.2,0.2,0.2,0.2,0.2]
@@ -146,7 +229,39 @@ plotter3 = Plotter(-5,5,-5,5,100)
 mesh1 = mixture1.get_mesh(plotter.pos)
 mesh2 = mixture2.get_mesh(plotter2.pos)
 mesh3 = mixture3.get_mesh(plotter3.pos)
-plotter.ax.plot_surface(plotter.X, plotter.Y, mesh1, alpha=0.7, cmap='plasma')
-plotter2.ax.plot_surface(plotter.X, plotter.Y, mesh2, alpha=0.7,  cmap='plasma')
-plotter3.ax.plot_surface(plotter.X, plotter.Y, mesh3, alpha=0.7,  cmap='plasma')
+plotter.ax.plot_surface(plotter.X, plotter.Y, mesh1, alpha=0.3, cmap='plasma')
+plotter2.ax.plot_surface(plotter.X, plotter.Y, mesh2, alpha=0.3,  cmap='plasma')
+plotter3.ax.plot_surface(plotter.X, plotter.Y, mesh3, alpha=0.3,  cmap='plasma')
+pt1=mixture1.sample_points(100)
+pt2=mixture2.sample_points(300)
+pt3=mixture3.sample_points(500)
+parzen_estimator=ParzenWindowEstimator(pt1,0.5)
+parzen_estimator2=ParzenWindowEstimator(pt2,0.5)
+parzen_estimator3=ParzenWindowEstimator(pt3,0.5)
+nn_estimator=ParzenNeuralNetwork()
+nn_estimator.train_network(pt1)
+nn_estimator2=ParzenNeuralNetwork()
+nn_estimator2.train_network(pt2)
+nn_estimator3=ParzenNeuralNetwork()
+nn_estimator3.train_network(pt3)
+estimated_mesh_nn=nn_estimator.estimate_pdf(pt1,plotter)
+estimated_mesh=parzen_estimator.estimate_pdf(plotter)
+estimated_mesh_nn2=nn_estimator2.estimate_pdf(pt2,plotter2)
+estimated_mesh2=parzen_estimator2.estimate_pdf(plotter2)
+estimated_mesh_nn3=nn_estimator3.estimate_pdf(pt3,plotter3)
+estimated_mesh3=parzen_estimator3.estimate_pdf(plotter3)
+plotter.add_points(pt1,"red")
+#plotter.ax.plot_surface(plotter.X, plotter.Y, estimated_mesh, alpha=0.3, color='yellow')
+plotter.ax.plot_surface(plotter.X, plotter.Y, estimated_mesh_nn, alpha=0.3, color='red')
+plotter2.add_points(pt2,"blue")
+#plotter2.ax.plot_surface(plotter2.X, plotter2.Y, estimated_mesh2, alpha=0.3, color='yellow')
+plotter2.ax.plot_surface(plotter2.X, plotter2.Y, estimated_mesh_nn2, alpha=0.3, color='red')
+plotter3.add_points(pt3,"green")
+#plotter3.ax.plot_surface(plotter3.X, plotter3.Y, estimated_mesh3, alpha=0.3, color='yellow')
+plotter3.ax.plot_surface(plotter3.X, plotter3.Y, estimated_mesh_nn3, alpha=0.3, color='red')
+print(f"paren estimation 1 results:\n{parzen_estimator.calculate_error_metrics(mesh1)}")
+print(f"paren estimation 2 results:\n{parzen_estimator2.calculate_error_metrics(mesh2)}")
+print(f"paren estimation 3 results:\n{parzen_estimator3.calculate_error_metrics(mesh3)}")
 plotter.show()
+plotter2.show()
+plotter3.show()
