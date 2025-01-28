@@ -229,39 +229,104 @@ plotter3 = Plotter(-5,5,-5,5,100)
 mesh1 = mixture1.get_mesh(plotter.pos)
 mesh2 = mixture2.get_mesh(plotter2.pos)
 mesh3 = mixture3.get_mesh(plotter3.pos)
-plotter.ax.plot_surface(plotter.X, plotter.Y, mesh1, alpha=0.3, cmap='plasma')
-plotter2.ax.plot_surface(plotter.X, plotter.Y, mesh2, alpha=0.3,  cmap='plasma')
-plotter3.ax.plot_surface(plotter.X, plotter.Y, mesh3, alpha=0.3,  cmap='plasma')
-pt1=mixture1.sample_points(100)
-pt2=mixture2.sample_points(300)
-pt3=mixture3.sample_points(500)
-parzen_estimator=ParzenWindowEstimator(pt1,0.5)
-parzen_estimator2=ParzenWindowEstimator(pt2,0.5)
-parzen_estimator3=ParzenWindowEstimator(pt3,0.5)
-nn_estimator=ParzenNeuralNetwork()
-nn_estimator.train_network(pt1)
-nn_estimator2=ParzenNeuralNetwork()
-nn_estimator2.train_network(pt2)
-nn_estimator3=ParzenNeuralNetwork()
-nn_estimator3.train_network(pt3)
-estimated_mesh_nn=nn_estimator.estimate_pdf(pt1,plotter)
-estimated_mesh=parzen_estimator.estimate_pdf(plotter)
-estimated_mesh_nn2=nn_estimator2.estimate_pdf(pt2,plotter2)
-estimated_mesh2=parzen_estimator2.estimate_pdf(plotter2)
-estimated_mesh_nn3=nn_estimator3.estimate_pdf(pt3,plotter3)
-estimated_mesh3=parzen_estimator3.estimate_pdf(plotter3)
-plotter.add_points(pt1,"red")
-#plotter.ax.plot_surface(plotter.X, plotter.Y, estimated_mesh, alpha=0.3, color='yellow')
-plotter.ax.plot_surface(plotter.X, plotter.Y, estimated_mesh_nn, alpha=0.3, color='red')
-plotter2.add_points(pt2,"blue")
-#plotter2.ax.plot_surface(plotter2.X, plotter2.Y, estimated_mesh2, alpha=0.3, color='yellow')
-plotter2.ax.plot_surface(plotter2.X, plotter2.Y, estimated_mesh_nn2, alpha=0.3, color='red')
-plotter3.add_points(pt3,"green")
-#plotter3.ax.plot_surface(plotter3.X, plotter3.Y, estimated_mesh3, alpha=0.3, color='yellow')
-plotter3.ax.plot_surface(plotter3.X, plotter3.Y, estimated_mesh_nn3, alpha=0.3, color='red')
-print(f"paren estimation 1 results:\n{parzen_estimator.calculate_error_metrics(mesh1)}")
-print(f"paren estimation 2 results:\n{parzen_estimator2.calculate_error_metrics(mesh2)}")
-print(f"paren estimation 3 results:\n{parzen_estimator3.calculate_error_metrics(mesh3)}")
-plotter.show()
-plotter2.show()
-plotter3.show()
+#plotter.ax.plot_surface(plotter.X, plotter.Y, mesh1, alpha=0.3, cmap='plasma')
+#plotter2.ax.plot_surface(plotter.X, plotter.Y, mesh2, alpha=0.3,  cmap='plasma')
+#plotter3.ax.plot_surface(plotter.X, plotter.Y, mesh3, alpha=0.3,  cmap='plasma')
+#pt1=mixture1.sample_points(100)
+#pt2=mixture2.sample_points(300)
+#pt3=mixture3.sample_points(500)
+#parzen_estimator=ParzenWindowEstimator(pt1,0.5)
+#parzen_estimator2=ParzenWindowEstimator(pt2,0.5)
+#parzen_estimator3=ParzenWindowEstimator(pt3,0.5)
+#nn_estimator=ParzenNeuralNetwork()
+#nn_estimator.train_network(pt1)
+#nn_estimator2=ParzenNeuralNetwork()
+#nn_estimator2.train_network(pt2)
+#nn_estimator3=ParzenNeuralNetwork()
+#nn_estimator3.train_network(pt3)
+#estimated_mesh_nn=nn_estimator.estimate_pdf(pt1,plotter)
+#estimated_mesh=parzen_estimator.estimate_pdf(plotter)
+#estimated_mesh_nn2=nn_estimator2.estimate_pdf(pt2,plotter2)
+#estimated_mesh2=parzen_estimator2.estimate_pdf(plotter2)
+#estimated_mesh_nn3=nn_estimator3.estimate_pdf(pt3,plotter3)
+#estimated_mesh3=parzen_estimator3.estimate_pdf(plotter3)
+#plotter.add_points(pt1,"red")
+##plotter.ax.plot_surface(plotter.X, plotter.Y, estimated_mesh, alpha=0.3, color='yellow')
+#plotter.ax.plot_surface(plotter.X, plotter.Y, estimated_mesh_nn, alpha=0.3, color='red')
+#plotter2.add_points(pt2,"blue")
+##plotter2.ax.plot_surface(plotter2.X, plotter2.Y, estimated_mesh2, alpha=0.3, color='yellow')
+#plotter2.ax.plot_surface(plotter2.X, plotter2.Y, estimated_mesh_nn2, alpha=0.3, color='red')
+#plotter3.add_points(pt3,"green")
+##plotter3.ax.plot_surface(plotter3.X, plotter3.Y, estimated_mesh3, alpha=0.3, color='yellow')
+#plotter3.ax.plot_surface(plotter3.X, plotter3.Y, estimated_mesh_nn3, alpha=0.3, color='red')
+#print(f"paren estimation 1 results:\n{parzen_estimator.calculate_error_metrics(mesh1)}")
+#print(f"paren estimation 2 results:\n{parzen_estimator2.calculate_error_metrics(mesh2)}")
+#print(f"paren estimation 3 results:\n{parzen_estimator3.calculate_error_metrics(mesh3)}")
+#plotter.show()
+#plotter2.show()
+#plotter3.show()
+# Define parameter ranges
+def powspace(start, stop, power, num, allow_floats:bool):
+    start = np.power(start, 1/float(power))
+    stop = np.power(stop, 1/float(power))
+    power_array=np.power( np.linspace(start, stop, num=num), power)
+    if allow_floats:
+        return power_array
+    else:
+        return np.array([int(i) for i in power_array])
+num_samples_per_gaussian = powspace(50,200,10,40,False)  # 20 to 200
+window_sizes = powspace(0.05, 1.0,10,40,True)  # 0.01 to 1.0
+architectures = [
+    {"hidden_layers": [10], "activation": nn.ReLU()},
+    {"hidden_layers": [20, 10], "activation": nn.Tanh()},
+    {"hidden_layers": [50], "activation": nn.Sigmoid()},
+    {"hidden_layers": [30, 20, 10], "activation": nn.LeakyReLU(0.1)},
+    {"hidden_layers": [100, 50], "activation": nn.ELU()}
+]
+num_kernels = np.linspace(10, 100, 10, dtype=int)  # Number of kernels
+bandwidths = np.linspace(0.01, 1.0, 10)  # Bandwidths for kernels
+
+# Initialize Gaussian Mixtures
+mixtures = [mixture1, mixture2, mixture3]
+
+# Nested loops for Parzen Window
+for mixture_idx, mixture in enumerate(mixtures):
+    print(f"Processing Gaussian Mixture {mixture_idx + 1}")
+    errors=[]
+    sampled_points=[]
+    sampled_window=[]
+    for num_samples in num_samples_per_gaussian:
+        samples = mixture.sample_points(num_samples)
+        for window_size in window_sizes:
+            parzen_estimator = ParzenWindowEstimator(samples, window_size)
+            estimated_pdf = parzen_estimator.estimate_pdf(plotter)
+            error = parzen_estimator.calculate_error_metrics(mixture.get_mesh(plotter.pos))
+            errors.append(error['Mean Squared Error'])
+            sampled_points.append(num_samples)
+            sampled_window.append(window_size)
+    fig = plt.figure()
+    ax = fig.add_subplot(projection='3d')
+    ax.scatter(np.array(sampled_points),np.array(sampled_window),np.array(errors),label=f"Samples={num_samples}", cmap='plasma')
+    plt.title(f"Parzen Window Errors (Mixture {mixture_idx + 1})")
+    plt.xlabel("sampled points")
+    plt.ylabel("window size")
+    plt.show()
+
+# Nested loops for PNN
+for mixture_idx, mixture in enumerate(mixtures):
+    print(f"Processing Gaussian Mixture {mixture_idx + 1}")
+    for architecture in architectures:
+        print(f"Testing architecture: {architecture}")
+        for num_kernels_val in num_kernels:
+            for bandwidth in bandwidths:
+                pnn = ParzenNeuralNetwork(input_dim=2, num_kernels=num_kernels_val, bandwidth=bandwidth)
+                pnn.train_network(mixture.sample_points(100))
+                estimated_pdf_nn = pnn.estimate_pdf(mixture.sample_points(100), plotter)
+                # Calculate errors (using estimated PDF from PNN)
+                errors_nn = np.mean((estimated_pdf_nn - mixture.get_mesh(plotter.pos)) ** 2)
+                plt.scatter(bandwidth, errors_nn, label=f"Kernels={num_kernels_val}")
+            plt.title(f"PNN Errors (Mixture {mixture_idx + 1}, Architecture {architecture})")
+            plt.xlabel("Bandwidth")
+            plt.ylabel("Mean Squared Error")
+            plt.legend()
+            plt.show()
