@@ -44,10 +44,23 @@ class ParzenNeuralNetwork(nn.Module):
         optimizer = optim.Adam(self.parameters(), lr=learning_rate)
         criterion = nn.MSELoss()
 
+        torch.autograd.set_detect_anomaly(True)  # Enable anomaly detection for debugging
+
         for epoch in range(epochs):
             optimizer.zero_grad()
             outputs = self.forward(points_tensor)
-            loss = criterion(outputs, targets_tensor)
+            mse_loss = criterion(outputs, targets_tensor)
+            
+            # If using a sqrt on the loss, add an epsilon to avoid NaN gradients
+            # For example, if you desire to use the RMSE loss instead of MSE:
+            eps = 1e-8
+            loss = torch.sqrt(mse_loss + eps)
+            
+            # Check for NaN loss and log a message if found
+            if torch.isnan(loss):
+                print(f"Epoch {epoch}: loss is NaN. Check your data or adjust learning rate.")
+                return
+            
             loss.backward()
             optimizer.step()
             if epoch % 100 == 0:
@@ -153,11 +166,9 @@ class Plotter:
         self.fig = plt.figure(figsize=(16, 9))
         self.ax = self.fig.add_subplot(111, projection='3d')
 
-    def add_surface(self, rv, color=None):
-        if not hasattr(rv, 'pdf'):
-            raise TypeError("Expected an object with a 'pdf' method, such as a scipy.stats.multivariate_normal object.")
-        Z = rv.pdf(self.pos)
-        self.ax.plot_surface(self.X, self.Y, Z, alpha=0.7, color=color)
+    def add_surface(self, mesh, color='plasma', alpha=0.7):
+        # mesh: a 2D array of pdf values that matches self.X and self.Y
+        self.ax.plot_surface(self.X, self.Y, mesh, alpha=alpha, cmap=color)
 
     def add_points(self, points, color='red'):
         if not isinstance(points, np.ndarray) or points.shape[1] != 3:
@@ -254,15 +265,17 @@ architectures = [
 num_kernels = np.linspace(10, 100, 10, dtype=int)  # Number of kernels
 bandwidths = np.linspace(0.01, 1.0, 10)  # Bandwidths for kernels
 
-# Initialize mixtures
+# Initialize mixtures list
 mixtures = [mixture1, mixture2, mixture3]
 
-# --- Parzen Window Evaluation ---
+# --------------------------
+# Parzen Window Evaluation
 for mixture_idx, mixture in enumerate(mixtures):
     print(f"Processing Gaussian Mixture {mixture_idx + 1} with Parzen Window")
     errors = []
     sampled_points = []
     sampled_window = []
+    # Loop over parameter grid
     for num_samples in num_samples_per_gaussian:
         samples = mixture.sample_points(num_samples)
         for window_size in window_sizes:
@@ -272,7 +285,7 @@ for mixture_idx, mixture in enumerate(mixtures):
             errors.append(error['Mean Squared Error'])
             sampled_points.append(num_samples)
             sampled_window.append(window_size)
-    # Create a 3D scatter plot for errors
+    # Save error scatter plot
     fig = plt.figure(figsize=(16, 9))
     ax = fig.add_subplot(projection='3d')
     ax.scatter(np.array(sampled_points), np.array(sampled_window), np.array(errors), c='r')
@@ -280,12 +293,38 @@ for mixture_idx, mixture in enumerate(mixtures):
     ax.set_xlabel("Sampled Points")
     ax.set_ylabel("Window Size")
     ax.set_zlabel("Mean Squared Error")
-    fig_filename = f"figures/Parzen_errors_mixture{mixture_idx + 1}.jpeg"
-    plt.savefig(fig_filename, dpi=300, bbox_inches='tight')
+    error_fig_filename = f"figures/Parzen_errors_mixture{mixture_idx + 1}.jpeg"
+    plt.savefig(error_fig_filename, dpi=300, bbox_inches='tight')
     plt.close(fig)
-    print(f"Saved figure: {fig_filename}")
+    print(f"Saved error figure: {error_fig_filename}")
 
-# --- Parzen Neural Network (PNN) Evaluation ---
+    # Identify best parameter combination (lowest error)
+    best_idx = np.argmin(errors)
+    best_num_samples = sampled_points[best_idx]
+    best_window_size = sampled_window[best_idx]
+    print(f"Best Parzen parameters for mixture {mixture_idx+1}: samples = {best_num_samples}, window = {best_window_size}")
+
+    # Re-run estimation using best parameters
+    samples_best = mixture.sample_points(best_num_samples)
+    parzen_best = ParzenWindowEstimator(samples_best, best_window_size)
+    estimated_pdf_best = parzen_best.estimate_pdf(plotter)
+    real_pdf = mixture.get_mesh(plotter.pos)
+    
+    # Create overlay plot: real pdf mesh and estimated pdf on top
+    fig_overlay = plt.figure(figsize=(16, 9))
+    ax_overlay = fig_overlay.add_subplot(projection='3d')
+    # Plot the true pdf mesh (use one colormap)
+    ax_overlay.plot_surface(plotter.X, plotter.Y, real_pdf, alpha=0.5, cmap='viridis')
+    # Overlay the estimated pdf mesh (use a different colormap and transparency)
+    ax_overlay.plot_surface(plotter.X, plotter.Y, estimated_pdf_best, alpha=0.5, cmap='plasma')
+    ax_overlay.set_title(f"Parzen Overlay (Mixture {mixture_idx+1})\nSamples = {best_num_samples}, Window = {best_window_size:.3f}")
+    overlay_fig_filename = f"figures/Parzen_overlay_mixture{mixture_idx + 1}.jpeg"
+    plt.savefig(overlay_fig_filename, dpi=300, bbox_inches='tight')
+    plt.close(fig_overlay)
+    print(f"Saved overlay figure: {overlay_fig_filename}")
+
+# --------------------------
+# Parzen Neural Network (PNN) Evaluation
 for mixture_idx, mixture in enumerate(mixtures):
     print(f"Processing Gaussian Mixture {mixture_idx + 1} with PNN")
     for arch in architectures:
@@ -293,7 +332,7 @@ for mixture_idx, mixture in enumerate(mixtures):
         errors_nn_arr = []
         num_kernel_nn = []
         bandwidths_nn = []
-        # For each architecture, we will log training output for each combination
+        # Log training outputs for each configuration
         for num_kernels_val in num_kernels:
             for bandwidth in bandwidths:
                 # Create a unique log file for this combination
@@ -303,23 +342,48 @@ for mixture_idx, mixture in enumerate(mixtures):
                     samples = mixture.sample_points(100)
                     pnn = ParzenNeuralNetwork(input_dim=2, num_kernels=num_kernels_val, bandwidth=bandwidth)
                     pnn.train_network(samples, log_file=log_file, learning_rate=0.01, epochs=500)
-                # After training, evaluate error on a fresh sample
+                # Evaluate error on a fresh sample
                 samples_eval = mixture.sample_points(100)
                 estimated_pdf_nn = pnn.estimate_pdf(samples_eval, plotter)
-                errors_nn = np.mean((estimated_pdf_nn - mixture.get_mesh(plotter.pos)) ** 2)
+                error_nn = np.mean((estimated_pdf_nn - mixture.get_mesh(plotter.pos)) ** 2)
                 num_kernel_nn.append(num_kernels_val)
                 bandwidths_nn.append(bandwidth)
-                errors_nn_arr.append(errors_nn)
-                print(f"Mixture {mixture_idx+1}, {arch_str}, Kernels {num_kernels_val}, Bandwidth {bandwidth:.3f}: Error = {errors_nn}")
-        # Create a 3D scatter plot for PNN errors per architecture
-        fig = plt.figure(figsize=(16, 9))
-        ax = fig.add_subplot(projection='3d')
-        ax.scatter(np.array(num_kernel_nn), np.array(bandwidths_nn), np.array(errors_nn_arr), c='green')
-        ax.set_title(f"PNN Errors (Mixture {mixture_idx + 1}, Architecture {arch_str})")
-        ax.set_xlabel("Number of Kernels")
-        ax.set_ylabel("Bandwidth")
-        ax.set_zlabel("Mean Squared Error")
-        fig_filename = f"figures/PNN_errors_mixture{mixture_idx+1}_{arch_str}.jpeg"
-        plt.savefig(fig_filename, dpi=300, bbox_inches='tight')
-        plt.close(fig)
-        print(f"Saved figure: {fig_filename}")
+                errors_nn_arr.append(error_nn)
+                print(f"Mixture {mixture_idx+1}, {arch_str}, Kernels {num_kernels_val}, Bandwidth {bandwidth:.3f}: Error = {error_nn}")
+
+        # Save error scatter plot for this architecture
+        fig_nn = plt.figure(figsize=(16, 9))
+        ax_nn = fig_nn.add_subplot(projection='3d')
+        ax_nn.scatter(np.array(num_kernel_nn), np.array(bandwidths_nn), np.array(errors_nn_arr), c='green')
+        ax_nn.set_title(f"PNN Errors (Mixture {mixture_idx + 1}, Architecture {arch_str})")
+        ax_nn.set_xlabel("Number of Kernels")
+        ax_nn.set_ylabel("Bandwidth")
+        ax_nn.set_zlabel("Mean Squared Error")
+        nn_error_fig_filename = f"figures/PNN_errors_mixture{mixture_idx+1}_{arch_str}.jpeg"
+        plt.savefig(nn_error_fig_filename, dpi=300, bbox_inches='tight')
+        plt.close(fig_nn)
+        print(f"Saved PNN error figure: {nn_error_fig_filename}")
+
+        # Identify best configuration (lowest error) for this architecture
+        best_idx_nn = np.argmin(errors_nn_arr)
+        best_num_kernels = num_kernel_nn[best_idx_nn]
+        best_bandwidth = bandwidths_nn[best_idx_nn]
+        print(f"Best PNN parameters for mixture {mixture_idx+1}, {arch_str}: kernels = {best_num_kernels}, bandwidth = {best_bandwidth:.3f}")
+
+        # Re-run training with best configuration (using a fresh sample)
+        samples_best_nn = mixture.sample_points(100)
+        pnn_best = ParzenNeuralNetwork(input_dim=2, num_kernels=best_num_kernels, bandwidth=best_bandwidth)
+        pnn_best.train_network(samples_best_nn, learning_rate=0.01, epochs=500)
+        estimated_pdf_nn_best = pnn_best.estimate_pdf(samples_best_nn, plotter)
+        real_pdf = mixture.get_mesh(plotter.pos)
+        
+        # Create overlay plot: true pdf mesh with estimated pdf on top
+        fig_nn_overlay = plt.figure(figsize=(16, 9))
+        ax_nn_overlay = fig_nn_overlay.add_subplot(projection='3d')
+        ax_nn_overlay.plot_surface(plotter.X, plotter.Y, real_pdf, alpha=0.5, cmap='viridis')
+        ax_nn_overlay.plot_surface(plotter.X, plotter.Y, estimated_pdf_nn_best, alpha=0.5, cmap='plasma')
+        ax_nn_overlay.set_title(f"PNN Overlay (Mixture {mixture_idx+1}, {arch_str})\nKernels = {best_num_kernels}, Bandwidth = {best_bandwidth:.3f}")
+        nn_overlay_fig_filename = f"figures/PNN_overlay_mixture{mixture_idx+1}_{arch_str}.jpeg"
+        plt.savefig(nn_overlay_fig_filename, dpi=300, bbox_inches='tight')
+        plt.close(fig_nn_overlay)
+        print(f"Saved PNN overlay figure: {nn_overlay_fig_filename}")
