@@ -1,9 +1,15 @@
+<<<<<<< HEAD
 % filepath: /home/fabrizio-benvenuti/git/Parzen-PNN-GaussianMixture-Estimator/experiment_report.tex
 \documentclass{article}
 \usepackage{amsmath, amssymb}
 \usepackage{graphicx}
 \usepackage{tabularx}
 
+=======
+\documentclass{article}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+>>>>>>> aef20ee ([ESTIMATOR] end of the estimation process)
 \begin{document}
 
 \title{Parzen-PNN Gaussian Mixture Estimator: Experiment Report}
@@ -12,6 +18,7 @@
 \maketitle
 
 \begin{abstract}
+<<<<<<< HEAD
     \begin{center}
         This report will describe the results and performance differences between
         Parzen Window and Parzen Neural Network (PNN) estimation methods.
@@ -58,6 +65,42 @@ where:
     this choice between all simmetric, always positive,\newline
     and unitary volume functions,was made because of the target pdf's nature
 \end{itemize}
+=======
+    \centering
+    This document aims at describing how different non parametric Estimation methods () perform.
+    It details the underlying theory, including Parzen window estimation, Probabilistic Neural Networks, and Gaussian Mixture Models, describes the experimental setup, and discusses the obtained results.
+\end{abstract}
+
+\section{Introduction}
+The experiment focused on evaluating a hybrid approach combining Parzen window techniques with Probabilistic Neural Networks (PNN) and Gaussian Mixture Models (GMM). The goal was to assess performance differences across various network architectures and activation functions.
+
+\section{Theory}
+\subsection{Parzen Window Estimation}
+\begin{abstract}
+    \centering
+    Parzen Windows is a non-parametric method used for density estimation, while Parzen Neural Networks (PNNs) leverage this method for classification. This document explores the theoretical foundation, mathematical formulation, and practical applications of both techniques in machine learning.
+\end{abstract}
+
+\section{Introduction}
+Many machine learning tasks require estimating probability density functions (PDFs) when the underlying distribution is unknown. Parzen Windows provide a kernel-based approach for density estimation, which serves as the foundation for Parzen Neural Networks. PNNs use a probabilistic approach to classification and offer advantages in accuracy and robustness while being computationally expensive. 
+
+\section{Parzen Window Estimation}
+Given a dataset of independent and identically distributed (i.i.d.) samples $X_1, X_2, ..., X_n$ drawn from an unknown distribution with density function $f(x)$, we estimate $f(x)$ using Parzen Windows as:
+\begin{equation}
+    \hat{f}(x) = \frac{1}{n h^d} \sum_{i=1}^{n} K \left( \frac{x - X_i}{h} \right),
+\end{equation}
+where:
+\begin{itemize}
+    \item $n$ is the number of training samples.
+    \item $h$ is the window width (bandwidth).
+    \item $d$ is the dimensionality of the data.
+    \item $K(\cdot)$ is a kernel function, commonly chosen as the Gaussian:
+    \begin{equation}
+        K(u) = \frac{1}{(2\pi)^{d/2}} e^{-\frac{1}{2} u^T u}.
+    \end{equation}
+\end{itemize}
+
+>>>>>>> aef20ee ([ESTIMATOR] end of the estimation process)
 The choice of $h$ affects the estimator’s properties:
 \begin{itemize}
     \item Large $h$ oversmooths the density estimate (high bias, low variance).
@@ -65,6 +108,7 @@ The choice of $h$ affects the estimator’s properties:
 \end{itemize}
 
 \section{Parzen Neural Networks (PNNs)}
+<<<<<<< HEAD
 A Parzen Neural Network consists of four layers:
 \begin{enumerate}
     \item \textbf{Input Layer}: Receives the feature vector $x$.
@@ -128,6 +172,23 @@ A Probabilistic Neural Network is designed for classification tasks by modeling 
 
 \subsection{Gaussian Mixture Models (GMM)}
 Gaussian Mixture Models assume that all data points are generated from a mixture of several Gaussian distributions. This approach is effective for clustering and modeling complex data distributions.
+=======
+A Parzen Neural Network is any feed-forward \textbf{ANN},\newline
+equipped with a supervised learning algorithm,\newline
+trained as follows:\newline
+\textbf{Algorithm:} train a feedforward ANN to learn the $p(x)$\newline
+from an unsupervised dataset $\tau$\newline
+\textbf{inputs:}
+\begin{itemize}
+    \item \textbf{ANN} architecture and hyperparameters
+    \item training dataset: $\tau = \{x_1, x_2, ..., x_n\}$
+    \item initial edge: $h_1$
+\end{itemize}
+\textbf{output:} the estimate of $p(x)$: $\hat{p}(.)$\newline
+\newline
+\textbf{procedure:}
+
+>>>>>>> aef20ee ([ESTIMATOR] end of the estimation process)
 
 \subsection{Integration}
 In this experiment, combining Parzen window estimation with PNN and GMM leverages the advantages of both non-parametric and probabilistic approaches, providing robust performance for density estimation and classification tasks.
@@ -152,8 +213,12 @@ The logs indicate that:
 \section{Conclusions}
 The experiment confirms that the network architecture and the activation function significantly affect convergence and performance. The integration of Parzen window estimation with PNN and GMM is promising for density estimation problems. Further research could optimize these configurations for broader applications.
 
+<<<<<<< HEAD
 \end{document}This document explains the experiment carried out with the Parzen-
 PNN Gaussian Mixture Estimator. It details the underlying theory, in-
 cluding Parzen window estimation, Probabilistic Neural Networks, and
 Gaussian Mixture Models, describes the experimental setup, and discusses
 the obtained results.
+=======
+\end{document}
+>>>>>>> aef20ee ([ESTIMATOR] end of the estimation process)
