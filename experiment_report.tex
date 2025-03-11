@@ -1,0 +1,128 @@
+% filepath: /home/fabrizio-benvenuti/git/Parzen-PNN-GaussianMixture-Estimator/experiment_report.tex
+\documentclass{article}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\begin{document}
+
+\title{Parzen-PNN Gaussian Mixture Estimator: Experiment Report}
+\author{Fabrizio Benvenuti}
+\date{\today}
+\maketitle
+
+\begin{abstract}
+This document explains the experiment carried out with the Parzen-PNN Gaussian Mixture Estimator. It details the underlying theory, including Parzen window estimation, Probabilistic Neural Networks, and Gaussian Mixture Models, describes the experimental setup, and discusses the obtained results.
+\end{abstract}
+
+\section{Introduction}
+The experiment focused on evaluating a hybrid approach combining Parzen window techniques with Probabilistic Neural Networks (PNN) and Gaussian Mixture Models (GMM). The goal was to assess performance differences across various network architectures and activation functions.
+
+\section{Theory}
+\subsection{Parzen Window Estimation}
+\begin{abstract}
+Parzen Windows is a non-parametric method used for density estimation, while Parzen Neural Networks (PNNs) leverage this method for classification. This document explores the theoretical foundation, mathematical formulation, and practical applications of both techniques in machine learning.
+\end{abstract}
+
+\section{Introduction}
+Many machine learning tasks require estimating probability density functions (PDFs) when the underlying distribution is unknown. Parzen Windows provide a kernel-based approach for density estimation, which serves as the foundation for Parzen Neural Networks. PNNs use a probabilistic approach to classification and offer advantages in accuracy and robustness while being computationally expensive. 
+
+\section{Parzen Window Estimation}
+Given a dataset of independent and identically distributed (i.i.d.) samples $X_1, X_2, ..., X_n$ drawn from an unknown distribution with density function $f(x)$, we estimate $f(x)$ using Parzen Windows as:
+\begin{equation}
+    \hat{f}(x) = \frac{1}{n h^d} \sum_{i=1}^{n} K \left( \frac{x - X_i}{h} \right),
+\end{equation}
+where:
+\begin{itemize}
+    \item $n$ is the number of training samples.
+    \item $h$ is the window width (bandwidth).
+    \item $d$ is the dimensionality of the data.
+    \item $K(\cdot)$ is a kernel function, commonly chosen as the Gaussian:
+    \begin{equation}
+        K(u) = \frac{1}{(2\pi)^{d/2}} e^{-\frac{1}{2} u^T u}.
+    \end{equation}
+\end{itemize}
+
+The choice of $h$ affects the estimator’s properties:
+\begin{itemize}
+    \item Large $h$ oversmooths the density estimate (high bias, low variance).
+    \item Small $h$ leads to high variance, making the estimate sensitive to noise.
+\end{itemize}
+
+\section{Parzen Windows for Classification}
+Parzen Windows can be used for classification by estimating class-conditional probabilities $P(x | C_k)$. Using Bayes' theorem:
+\begin{equation}
+    P(C_k | x) = \frac{P(x | C_k) P(C_k)}{P(x)},
+\end{equation}
+where $P(x | C_k)$ is estimated using Parzen Windows.
+
+A sample $x$ is assigned to the class $C_k$ that maximizes $P(C_k | x)$:
+\begin{equation}
+    C^* = \arg \max_k P(C_k | x).
+\end{equation}
+
+\section{Parzen Neural Networks (PNNs)}
+A Parzen Neural Network consists of four layers:
+\begin{enumerate}
+    \item \textbf{Input Layer}: Receives the feature vector $x$.
+    \item \textbf{Pattern Layer}: Each neuron represents a training sample and applies a kernel function:
+    \begin{equation}
+        \phi_i(x) = e^{-\frac{||x - X_i||^2}{2\sigma^2}}.
+    \end{equation}
+    \item \textbf{Summation Layer}: Computes class-wise probability estimates:
+    \begin{equation}
+        S_k(x) = \sum_{i \in C_k} \phi_i(x).
+    \end{equation}
+    \item \textbf{Decision Layer}: Selects the class with the highest probability:
+    \begin{equation}
+        C^* = \arg \max_k S_k(x).
+    \end{equation}
+\end{enumerate}
+
+\section{Comparison with Other Models}
+\begin{table}[h]
+    \centering
+    \begin{tabular}{|c|c|c|c|c|}
+        \hline
+        \textbf{Model} & \textbf{Training Time} & \textbf{Classification Time} & \textbf{Memory Usage} & \textbf{Robustness} \\
+        \hline
+        Parzen Windows & Slow & Slow & High & Good \\
+        Parzen Neural Networks & Fast & Slow & Very High & Excellent \\
+        k-NN Classifier & Fast & Slow & High & Good \\
+        SVMs & Slow & Fast & Low & Excellent \\
+        Deep Neural Networks & Very Slow & Fast & Medium-High & Good \\
+        \hline
+    \end{tabular}
+    \caption{Comparison of Parzen-based models with other ML techniques.}
+\end{table}
+
+
+
+\subsection{Probabilistic Neural Networks (PNN)}
+A Probabilistic Neural Network is designed for classification tasks by modeling the probability density functions of different classes. Its formulation supports rapid training and high noise tolerance.
+
+\subsection{Gaussian Mixture Models (GMM)}
+Gaussian Mixture Models assume that all data points are generated from a mixture of several Gaussian distributions. This approach is effective for clustering and modeling complex data distributions.
+
+\subsection{Integration}
+In this experiment, combining Parzen window estimation with PNN and GMM leverages the advantages of both non-parametric and probabilistic approaches, providing robust performance for density estimation and classification tasks.
+
+\section{Experimental Setup}
+Different configurations were tested:
+\begin{itemize}
+    \item Architectures with varying layers (e.g., 20, 10, 50, etc.).
+    \item Activation functions including Tanh, Sigmoid, and LeakyReLU.
+    \item Variation in parameters such as the number of kernels (nk) and bandwidth (bw).
+\end{itemize}
+The performance was monitored by analyzing the loss function over several training epochs.
+
+\section{Results}
+The logs indicate that:
+\begin{itemize}
+    \item The configuration with 20 and 10 layers using Tanh activation showed a consistent decrease in loss, achieving values below 0.002 by epoch 400.
+    \item The 50-layer configuration with Sigmoid activation maintained a higher loss value, indicating limited improvement.
+    \item The setup with 30-20-10 layers using LeakyReLU activation displayed rapid loss decrease, suggesting effective learning.
+\end{itemize}
+
+\section{Conclusions}
+The experiment confirms that the network architecture and the activation function significantly affect convergence and performance. The integration of Parzen window estimation with PNN and GMM is promising for density estimation problems. Further research could optimize these configurations for broader applications.
+
+\end{document}
