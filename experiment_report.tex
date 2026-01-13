@@ -20,7 +20,7 @@
         They will be benchmarked against two-dimensional
         Probability Density Functions formed by a Mixture of Gaussians;
         while varying the cardinality of the extracted point set, the architecture
-        of the neural network, and the hyperparameters of both estimation methods.
+        of the neural network (kernel parameterization), and the hyperparameters of both estimation methods.
     \end{center}
 \end{abstract}
 
@@ -41,50 +41,96 @@
 
 \section{Estimation Methods}
     The PDF will then be estimated non-parametrically using the Parzen Window and the Parzen Neural Network, as will be described in the later sections.\newline
-    This Methods still fall into the supervised learning category, as they both require a training set of samples. \newline
+    These methods are density estimators that learn from an unlabeled sample set (no class labels). \newline
     In this section we will briefly describe the theoretical background of both methods.
     \subsection{Parzen Window Estimation}
-        Given a dataset of independent and identically distributed (i.i.d.) samples $\underline{X_1}, \underline{X_2}, \ldots, \underline{X_n}$ drawn from an unknown distribution with density function $p(\overline{x})$, we estimate $p(\overline{x})$ using Parzen Windows as:
+        Let $Y=\{x_1,\ldots,x_n\}\subset\mathbb{R}^d$ be i.i.d.\ samples drawn from an
+        unknown density $p(x)$. For a query point $x_0$, consider a region
+        $R_n(x_0)\subset\mathbb{R}^d$ with volume $V_n$ and let $k_n$ be the number of
+        samples falling in $R_n$. A generic non-parametric density estimator is
         \begin{equation}
-            p_n(\overline{x_0}) = \frac{1}{n} \sum_{i=1}^{n} \frac{1}{V_n} \phi \left( \frac{\underline{x_0} - \underline{x_i}}{h_n} \right),
+            p_n(x_0) = \frac{k_n/n}{V_n}.
+            \label{eq:counting-estimator}
         \end{equation}
-        where:
-        \begin{itemize}
-            \item $n$ is the cardinality of the training set.
-            \item $h_n$ is the window width (bandwidth).
-            \item $V_n$ is the volume of the window.
-            \item $\phi(\cdot)$ is a kernel function, commonly chosen as the Gaussian:
-            \begin{equation}
-                \phi(u) = N(\underline{u};\underline{0};I)
-            \end{equation}
-        \end{itemize}
-        The choice of $h$ affects the estimator’s properties:
-        \begin{itemize}
-            \item Large $h$ oversmooths the density estimate (high bias, low variance).
-            \item Small $h$ leads to high variance, making the estimate sensitive to noise.
-        \end{itemize}
-        \newpage
+        Since $k_n$ depends on the random sample, $p_n(x_0)$ is itself a random
+        variable. The estimator is consistent in probability if and only if
+        \begin{equation}
+            \lim_{n\to\infty} V_n = 0, \qquad
+            \lim_{n\to\infty} k_n = \infty, \qquad
+            \lim_{n\to\infty} \frac{k_n}{n} = 0.
+            \label{eq:consistency-conditions}
+        \end{equation}
+        Two complementary constructions satisfy these conditions: fixing $V_n$
+        (Parzen Window) or fixing $k_n$ (k-nearest neighbors). 
+
+        In the Parzen Window method, $R_n$ is chosen as a hypercube centered at $x_0$
+        with edge length $h_n$, so that $V_n=h_n^d$ and $h_n\to 0$ as $n\to\infty$.
+        Define the window (kernel) function
+        \begin{equation}
+            \phi(u) =
+            \begin{cases}
+                1, & |u_j|\le \tfrac{1}{2}, \ \forall j=1,\ldots,d,\\
+                0, & \text{otherwise}.
+            \end{cases}
+            \label{eq:pw-kernel}
+        \end{equation}
+        The indicator of whether $x_i$ belongs to $R_n(x_0)$ is then
+        $\phi((x_0-x_i)/h_n)$, yielding
+        \begin{equation}
+            k_n = \sum_{i=1}^{n} \phi\!\left(\frac{x_0-x_i}{h_n}\right).
+            \label{eq:kn}
+        \end{equation}
+        Substituting \eqref{eq:kn} into \eqref{eq:counting-estimator} gives the Parzen
+        density estimator:
+        \begin{equation}
+            p_n(x_0) =
+            \frac{1}{n}\sum_{i=1}^{n}
+            \frac{1}{V_n}\,
+            \phi\!\left(\frac{x_0-x_i}{h_n}\right),
+            \qquad V_n=h_n^d.
+            \label{eq:parzen-estimator}
+        \end{equation}
+        Equation~\eqref{eq:parzen-estimator} shows that Parzen Window estimation is a
+        kernel machine obtained by averaging localized contributions centered at
+        the samples. Replacing the rectangular kernel $\phi$ with smooth kernels
+        (e.g.\ Gaussian) yields classical kernel density estimation.
+
+        \paragraph{Literature form vs. what we implement.}
+        The classical presentation above uses a \emph{rectangular} window (hard indicator)
+        and estimates $p(x_0)$ by counting samples in a hypercube around $x_0$.
+        In our implementation we instead use a \emph{Gaussian} kernel (Gaussian KDE).
+
+        \emph{Rectangular window advantages:} simplest derivation and intuitive counting
+        interpretation.
+        \emph{Rectangular window disadvantages:} discontinuous (blocky) estimates and strong
+        sensitivity to boundary effects.
+
+        \emph{Gaussian KDE advantages:} smooth estimates and better qualitative match to the
+        Gaussian-mixture ground truth used in this report.
+        \emph{Gaussian KDE disadvantages:} global support (non-compact tails) and higher
+        computational cost without acceleration.
+
+        For the purposes of comparing smooth density estimators on mixtures of Gaussians,
+        Gaussian KDE is the more appropriate choice.
+
     \subsection{Parzen Neural Networks (PNNs)}
-        A Parzen Neural Network is any ANN, equipped with a
-        supervised learning algorithm, that is trained as follows:
+        A Parzen Neural Network is any ANN trained to produce a density estimate.
+        In the classical presentation one may construct Parzen/KDE targets and regress them;
+        in this report we instead train the network by maximum likelihood on samples only,
+        while enforcing that it represents a proper pdf on a fixed compact domain.
 
         \begin{algorithm}
         \caption{Train Parzen Neural Network}\label{alg:train-pnn}
-        \KwData{dataset $\tau = \{x_1, \ldots, x_n\}$, initial bandwidth $h_1$, dimension $d$, ANN hyperparameters, $\phi(\cdot)$ kernel function}
-        \KwResult{Trained ANN parameters; probability density function estimation $\hat{p}(\cdot)$}
-            $h_n = \dfrac{h_1}{\sqrt{n-1}}$\;
-            $V_n = h_n^{d}$\;
-            \For{$i=1$ \KwTo $n$}{
-                $\tau_i \leftarrow \tau \setminus \{x_i\}$\;
-                $y_i \leftarrow \dfrac{1}{n-1}\sum_{x\in\tau_i}\dfrac{1}{V_n}\,\phi\!\left(\dfrac{x_j-x}{h_n}\right)$\;
-            }
-            $S \leftarrow \{(x_i, y_i)\mid i=1,\ldots,n\}$\;
-            Train the ANN via supervised learning on the set $S$\;
-            $\hat{p}(\cdot) \leftarrow$ function computed by the trained ANN\;
+        \KwData{samples $\tau = \{x_1, \ldots, x_n\}\subset\mathbb{R}^d$, compact domain $D\subset\mathbb{R}^d$, ANN architecture and optimizer hyperparameters}
+        \KwResult{Trained ANN parameters; pdf estimate $p_\theta(\cdot)$ on $D$}
+            Define a positive unnormalized model $\tilde p_\theta(x)=g(f_\theta(x))$ with $g:\mathbb{R}\to\mathbb{R}_+$\;
+            Define the normalization constant $Z_\theta = \int_D \tilde p_\theta(u)\,du$\;
+            Define the normalized pdf on $D$: $p_\theta(x)=\tilde p_\theta(x)/Z_\theta$\;
+            Train by maximum likelihood: minimize $\mathcal{L}_{\mathrm{NLL}}(\theta)= -\frac{1}{n}\sum_{i=1}^n \log p_\theta(x_i)$\;
         \end{algorithm}
     \subsubsection{Output Constraints and Theoretical Properties of PNNs}
-    A Parzen Neural Network (PNN) is trained to regress Parzen targets and
-    then used as an (unnormalized) density surrogate $\hat{p}:\mathbb{R}^d\to\mathbb{R}_+$.
+    A Parzen Neural Network (PNN) is trained to regress density targets and
+    then used as a non-negative density surrogate $\hat{p}:\mathbb{R}^d\to\mathbb{R}_+$.
     Since a probability density must satisfy non-negativity, the output layer
     is chosen as
     \begin{equation}
@@ -119,16 +165,16 @@
         \qquad u_m\sim\mathrm{Unif}(X).
     \end{equation}
 
-    The training targets $y_i$ in Algorithm~\ref{alg:train-pnn} are
-    constructed with a leave-one-out Parzen Window estimator:
-    \begin{equation}
-        y_i = \frac{1}{n-1} \sum_{x \in \tau_i} \frac{1}{V_n}\,
-        \phi\!\left(\frac{x_i - x}{h_n}\right), \quad \tau_i = \tau \setminus \{x_i\}.
-    \end{equation}
-    Removing the self-kernel avoids an artificial peak at $x_i$ and yields an
-    (unbiased) estimate at sample locations. Since targets are available only
-    at $\{x_i\}_{i=1}^n$, the behavior between and outside samples is governed by
-    the network inductive bias.
+    \paragraph{Remark (oracle targets vs. sample-only training).}
+    In synthetic experiments one could evaluate the ground-truth density $p(x)$ at each
+    sampled point $x_i$ and train a network with labels $y_i=p(x_i)$. These are called
+    \emph{oracle targets} because they use privileged information (the exact mixture
+    parameters) that would not be available in a real density-estimation setting.
+    They can be useful for debugging, but they do not reflect the actual task of learning
+    from samples only.
+
+    In this report we \textbf{do not} train the PNN on $y_i=p(x_i)$. We train only from samples
+    by maximizing likelihood under the learned density model (see Experimental Setup).
 
     \paragraph{Exploiting the support $X$ (practical and mathematical view).}
     Standard activations are non-local basis functions; therefore fitting
@@ -152,78 +198,171 @@
     $\hat{p}(x)\approx 0$ outside the data support, stabilizes numerical
     normalization, and mitigates spurious heavy tails.
 
-\section{Estimation performance Calculation}
-    The performance of each method will be evaluated based on several metrics, including:
-    \begin{itemize}
-        \item Mean Squared Error (MSE)
-        \item Root Mean Squared Error (RMSE)
-        \item Maximum Absolute Error
-        \item Mean Absolute Error (MAE)
-    \end{itemize}
-        \subsubsection{Parzen Window estimation}
-            The Parzen Window method estimates the probability density function (PDF) by placing a kernel at each sampled data point and averaging their contributions over a . The window size (bandwidth) controls the smoothness of the estimate, with smaller windows capturing more detail but increasing variance. In the experiments, the method was evaluated by varying both the number of sampled points and the window size, and the estimation error was measured against the true Gaussian mixture PDF. This approach provides a flexible, non-parametric way to approximate
-            complex distributions from finite samples.
-        \subsubsection{Parzen Neural Network estimation}
-            The latter will consist of 1 or 2 hidden layers with a sigmoid activation function.
-            and the output layer will use either ReLU or sigmoid functions with variable amplitude.
-\section{Comparison with Other Models}
-% Fix: Use X columns for automatic wrapping, reduce font size, and improve centering
-
-\renewcommand{\arraystretch}{1.2} % Optional: better row spacing
-
-% Use footnotesize for a more compact table
-
-\begin{table}[h]
-    \begin{center}
-        \footnotesize
-        \begin{tabularx}{\textwidth}{|X|X|X|X|X|}
-            \hline
-            \textbf{Model} & \textbf{Training Time} & \textbf{Classification Time} & \textbf{Memory Usage} & \textbf{Robustness} \\
-            \hline
-            Parzen\newline Windows & Slow & Slow & High & Good \\
-            Parzen Neural Networks & Fast & Slow & Very High & Excellent \\
-            k-NN Classifier & Fast & Slow & High & Good \\
-            SVMs & Slow & Fast & Low & Excellent \\
-            Deep Neural Networks & Very Slow & Fast & Medium-High & Good \\
-            \hline
-        \end{tabularx}
-    \end{center}
-    \caption{Comparison of Parzen-based models with other ML techniques.}
-\end{table}
-
-
-
-\subsection{Probabilistic Neural Networks (PNN)}
-A Probabilistic Neural Network is designed for classification tasks by modeling the probability density functions of different classes. Its formulation supports rapid training and high noise tolerance.
-
-\subsection{Gaussian Mixture Models (GMM)}
-Gaussian Mixture Models assume that all data points are generated from a mixture of several Gaussian distributions. This approach is effective for clustering and modeling complex data distributions.
-
-\subsection{Integration}
-In this experiment, combining Parzen window estimation with PNN and GMM leverages the advantages of both non-parametric and probabilistic approaches, providing robust performance for density estimation and classification tasks.
 
 \section{Experimental Setup}
-Different configurations were tested:
+\paragraph{Abstract.}
+The goal of the experiment is to compare Parzen Window (PW) estimation and Parzen Neural
+Network (PNN) estimation on synthetic two-dimensional densities with known ground truth.
+For each selected Gaussian mixture $p(x)$, datasets of increasing cardinality $n$ are sampled,
+each estimator is trained/tuned on the sampled data, and its estimate is evaluated against
+the true density on a common evaluation domain. The comparison is performed while varying
+(i) the sample size and (ii) the main hyperparameters controlling smoothness and model
+capacity (PW bandwidth; PNN kernel parameterization and hyperparameters).
+
+\subsection{Choices made}
+
+    \textbf{Static design choices.} The ground-truth densities are fixed mixtures of Gaussians
+in $\mathbb{R}^2$. For a mixture with $M$ components, the density is
+\begin{equation}
+    p(x) = \sum_{m=1}^{M} \pi_m\,\mathcal{N}(x;\mu_m,\Sigma_m),
+    \qquad \pi_m\ge 0,\ \sum_{m=1}^{M}\pi_m = 1,
+\end{equation}
+with means $\mu_m\in\mathbb{R}^2$ and positive semidefinite covariances $\Sigma_m\in\mathbb{R}^{2\times 2}$.
+Using mixtures provides multimodal targets with controllable overlap and anisotropy.
+
+For PW estimation we use a Gaussian kernel density estimator (as implemented in
+    \texttt{ParzenWindowEstimator}). In $d=2$ dimensions, with bandwidth $h>0$,
+\begin{equation}
+    \hat{p}_{\mathrm{PW},h}(x)
+    = \frac{1}{n}\sum_{i=1}^{n}\mathcal{N}(x;x_i,h^2 I_2)
+    = \frac{1}{n\,(2\pi h^2)}\sum_{i=1}^{n}\exp\!\left(-\frac{\|x-x_i\|^2}{2h^2}\right).
+\end{equation}
+\paragraph{Why Gaussian kernels.}
+Gaussian kernels are used because the ground truth is itself a mixture of Gaussians:
+$p(x)=\sum_{m=1}^{M}\pi_m\,\mathcal{N}(x;\mu_m,\Sigma_m)$. Using Gaussian kernels makes both PW and
+the PNN model class naturally matched to the target family: (i) the estimators remain smooth,
+(ii) the convolution/mixture structure is preserved (Gaussian basis functions yield
+mixtures of Gaussians), and (iii) with sufficient components/basis functions the estimator
+can approximate multi-modal Gaussian mixtures with controllable overlap.
+
+For PNN estimation, the implementation in \texttt{estimator.py} uses a kernel (RBF) network
+that parameterizes a density with a standard multilayer perceptron (MLP).
+Concretely, the network outputs an unnormalized positive score
+\begin{equation}
+    	ilde p_\theta(x) = g\big(f_\theta(x)\big),\qquad g:\mathbb{R}\to\mathbb{R}_+,
+\end{equation}
+and it is turned into a proper pdf on the fixed evaluation rectangle $D$ by explicit normalization:
+\begin{equation}
+    p_\theta(x) = \frac{\tilde p_\theta(x)}{Z_\theta},\qquad Z_\theta = \int_D \tilde p_\theta(u)\,du.
+\end{equation}
+In the implementation, $Z_\theta$ is approximated by a differentiable Riemann sum on the same
+uniform grid used for evaluation, so that the resulting $p_\theta$ integrates (approximately) to $1$.
+
+\paragraph{Implementation note.}
+We use a smooth positive output map $g$ (softplus) so that $\tilde p_\theta(x)>0$ and
+$\log p_\theta(x)$ is well-defined during maximum-likelihood training.
+
+
+\paragraph{Learnable parameters.}
+All PNN parameters are the neural network weights/biases in $f_\theta$.
+The shape of $f_\theta$ (hidden-layer widths and activation) is the architectural choice
+that we sweep in the experiments.
+
+\paragraph{How can we match a ground truth with different covariances?}
+Although the ground truth is a Gaussian mixture with possibly anisotropic covariances,
+an MLP-defined density on $D$ is a flexible function class: with sufficient hidden units
+it can approximate multi-modal and anisotropic shapes (within $D$) by learning an appropriate
+log-density landscape.
+
+\paragraph{Is this still a Parzen Neural Network?}
+Yes in the broad sense: a PNN is a neural model trained to produce a density estimate derived
+from Parzen/KDE-style targets. When centers are fixed at samples and covariances are fixed,
+the kernel expansion reduces to a Parzen estimator; learning the kernel parameters distills the
+Parzen estimate into a compact, trainable representation.
+
+	\textbf{Dynamic variables and grids.} The experimental factors are discretized into finite
+sets to enable controlled sweeps:
 \begin{itemize}
-    \item Architectures with varying layers (e.g., 20, 10, 50, etc.).
-    \item Activation functions including Tanh, Sigmoid, and LeakyReLU.
-    \item Variation in parameters such as the number of kernels (nk) and bandwidth (bw).
+    \item \emph{Sample size.} A set of cardinalities $n\in\mathcal{N}$ is used to probe the
+    bias--variance trade-off and convergence behavior as data increases.
+    \item \emph{PW bandwidth.} A set $h\in\mathcal{H}$ spanning small to large smoothing
+    is used. Small $h$ reduces bias but increases variance, while large $h$ oversmooths.
+    \item \emph{PNN hyperparameters.} We sweep the neural network \emph{architecture}, i.e.
+    the number of hidden layers, the number of units per layer, and the activation function.
+    Each architecture is trained by maximum likelihood with explicit normalization over $D$.
 \end{itemize}
-The performance was monitored by analyzing the loss function over several training epochs.
+
+\paragraph{Chosen PNN architectures (5 variants).}
+We compare five MLP architectures (depth/width and activation diversity):
+\begin{itemize}
+    \item \textbf{[10] + ReLU}
+    \item \textbf{[20,10] + Tanh}
+    \item \textbf{[50] + Sigmoid}
+    \item \textbf{[30,20,10] + LeakyReLU}
+    \item \textbf{[100,50] + ELU}
+\end{itemize}
+This set is useful because it probes how density-estimation accuracy depends on representation
+capacity (depth/width) and nonlinearity, while keeping the training objective fixed (MLE).
+
+\subsection{Setup steps}
+\subsubsection{Ancestral sampling from a Gaussian mixture (our case)}
+For each ground-truth mixture $p(x)=\sum_{m=1}^{M}\pi_m\,\mathcal{N}(x;\mu_m,\Sigma_m)$, we generate
+i.i.d. samples using the standard ancestral procedure:
+\begin{equation}
+    J \sim \mathrm{Categorical}(\pi_1,\ldots,\pi_M),
+    \qquad X\mid(J=m) \sim \mathcal{N}(\mu_m,\Sigma_m).
+\end{equation}
+In practice, this is implemented by sampling an index $J$ with probabilities $(\pi_m)$ and then
+sampling $X$ from the selected Gaussian component.
+For training the estimators we use only the sampled locations $\{x_i\}_{i=1}^{n}$.
+
+	\textbf{2) Training/estimating the density.}
+\begin{itemize}
+    \item \emph{PW:} for each $h\in\mathcal{H}$, compute $\hat{p}_{\mathrm{PW},h}$ from the sample set.
+    \item \emph{PNN (maximum likelihood):} train the kernel-mixture model by maximizing
+    the sample log-likelihood under $p_\theta$. Given samples $\{x_i\}_{i=1}^n$,
+    the objective is
+    \begin{equation}
+        \max_{\theta}\ \frac{1}{n}\sum_{i=1}^{n}\log p_\theta(x_i)
+        \quad\Longleftrightarrow\quad
+        \min_{\theta}\ \mathcal{L}_{\mathrm{NLL}}(\theta)
+        = -\frac{1}{n}\sum_{i=1}^{n}\log p_\theta(x_i).
+    \end{equation}
+\end{itemize}
+
+\subsubsection{Loss function and optimization}
+Let $\hat{p}_\theta$ denote the PNN density model with parameters $\theta$ (kernel centers, mixture
+weights, and covariance parameters). Since $p_\theta$ is a proper pdf on $D$, we can train it by
+maximum likelihood on samples. The loss minimized in the implementation is the negative
+log-likelihood (NLL):
+\begin{equation}
+    \mathcal{L}_{\mathrm{NLL}}(\theta) = -\frac{1}{n}\sum_{i=1}^{n}\log \hat{p}_\theta(x_i).
+\end{equation}
+Optimization is performed with Adam, a first-order stochastic gradient method that updates
+parameters by combining gradients $\nabla_\theta\mathcal{L}$ with exponential moving averages
+of first and second moments (adaptive step sizes per parameter). In our script the updates are
+performed for a fixed number of epochs; each epoch corresponds to one full pass over the sampled
+training points.
+
+	\textbf{3) Common evaluation protocol.} Let $D\subset\mathbb{R}^2$ be a fixed evaluation domain
+(a rectangle covering the mixtures) and let $\{u_m\}_{m=1}^{M_D}$ be a uniform grid on $D$.
+The pointwise error is measured against the true density $p$ on the same grid:
+\begin{equation}
+    \mathrm{MSE} = \frac{1}{M_D}\sum_{m=1}^{M_D}\big(\hat{p}(u_m)-p(u_m)\big)^2,
+    \qquad \mathrm{RMSE}=\sqrt{\mathrm{MSE}}.
+\end{equation}
+Analogous definitions are used for MAE and maximum absolute error. This yields, for each
+mixture and each configuration of $(n,h)$ or $(n,\text{architecture})$, a comparable scalar
+performance measure.
+
+	\textbf{4) Relation to the report objective.} Repeating the above steps across mixtures and
+hyperparameter grids produces the empirical comparison required in the abstract goal:
+benchmark PW and PNN on known 2D densities while varying the number of extracted samples,
+the network architecture, and the key hyperparameters controlling smoothness and capacity.
 
 \section{Results}
 The logs indicate that:
 \begin{itemize}
-    \item The configuration with 20 and 10 layers using Tanh activation showed a consistent decrease in loss, achieving values below 0.002 by epoch 400.
-    \item The 50-layer configuration with Sigmoid activation maintained a higher loss value, indicating limited improvement.
-    \item The setup with 30-20-10 layers using LeakyReLU activation displayed rapid loss decrease, suggesting effective learning.
+    \item For Parzen Windows, the bandwidth $h$ controls the bias--variance trade-off: small $h$ reduces bias but increases variance, while large $h$ oversmooths the estimate.
+    \item For the neural PNN, performance depends on the MLP architecture (depth/width and activation), since it controls the function class used to represent the log-density on the compact domain $D$.
+    \item The reported figures summarize the error values over the explored architecture choices for each mixture.
 \end{itemize}
 
 \section{Conclusions}
-The experiment confirms that the network architecture and the activation function significantly affect convergence and performance. The integration of Parzen window estimation with PNN and GMM is promising for density estimation problems. Further research could optimize these configurations for broader applications.
+The experiment highlights the role of kernel parameterization in PNN performance: more flexible
+kernel covariances can reduce the number of kernels required to approximate anisotropic mixture
+components, while simpler parameterizations can still work given sufficient $K$. The integration
+of Parzen window estimation with trainable kernel networks is promising for density estimation
+problems.
 
-\end{document}This document explains the experiment carried out with the Parzen-
-PNN Gaussian Mixture Estimator. It details the underlying theory, in-
-cluding Parzen window estimation, Probabilistic Neural Networks, and
-Gaussian Mixture Models, describes the experimental setup, and discusses
-the obtained results.
+\end{document}

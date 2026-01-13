@@ -4,3 +4,5 @@
 *.fls
 *.log
 *.synctex.gz
+.venv
+__pycache__
