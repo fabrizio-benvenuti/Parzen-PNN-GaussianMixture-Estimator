@@ -113,91 +113,97 @@
         For the purposes of comparing smooth density estimators on mixtures of Gaussians,
         Gaussian KDE is the more appropriate choice.
 
-    \subsection{Parzen Neural Networks (PNNs)}
-        A Parzen Neural Network is any ANN trained to produce a density estimate.
-        In the classical presentation one may construct Parzen/KDE targets and regress them;
-        in this report we instead train the network by maximum likelihood on samples only,
-        while enforcing that it represents a proper pdf on a fixed compact domain.
+        \subsubsection{Bandwidth parameterization ($h_1$ vs. $h_n$)}
+        In the experiments and in the code, the user-facing bandwidth is treated as a \emph{base}
+        bandwidth $h_1$. To match the PNN training procedure in Algorithm~\ref{alg:train-pnn},
+        we compute an effective bandwidth
+        \begin{equation}
+            h_n = \frac{h_1}{\sqrt{n-1}},\qquad V_n=h_n^d.
+        \end{equation}
+        The Parzen Window (Gaussian KDE) baseline therefore uses $h_n$ inside the Gaussian kernel
+        normalization and exponent, even though the sweep is reported in terms of $h_1$.
 
-        \begin{algorithm}
-        \caption{Train Parzen Neural Network}\label{alg:train-pnn}
-        \KwData{samples $\tau = \{x_1, \ldots, x_n\}\subset\mathbb{R}^d$, compact domain $D\subset\mathbb{R}^d$, ANN architecture and optimizer hyperparameters}
-        \KwResult{Trained ANN parameters; pdf estimate $p_\theta(\cdot)$ on $D$}
-            Define a positive unnormalized model $\tilde p_\theta(x)=g(f_\theta(x))$ with $g:\mathbb{R}\to\mathbb{R}_+$\;
-            Define the normalization constant $Z_\theta = \int_D \tilde p_\theta(u)\,du$\;
-            Define the normalized pdf on $D$: $p_\theta(x)=\tilde p_\theta(x)/Z_\theta$\;
-            Train by maximum likelihood: minimize $\mathcal{L}_{\mathrm{NLL}}(\theta)= -\frac{1}{n}\sum_{i=1}^n \log p_\theta(x_i)$\;
-        \end{algorithm}
+    \subsection{Parzen Neural Networks (PNNs)}
+    A Parzen Neural Network is an artificial
+    neural network trained to regress non-parametric
+    Parzen Window density estimates. Given samples
+    $\tau=\{x_1,\ldots,x_n\}\subset\mathbb{R}^d$, the network learns an
+    approximation of the Parzen estimator and is then used as a continuous
+    surrogate of the probability density.
+
+    \begin{algorithm}
+    \caption{Train Parzen Neural Network}\label{alg:train-pnn}
+    \KwData{samples $\tau=\{x_1,\ldots,x_n\}$, bandwidth $h_1$, kernel $\phi$, ANN architecture and optimizer hyperparameters}
+    \KwResult{Trained ANN parameters; unnormalized density surrogate $\hat p_\theta(\cdot)$}
+    Compute bandwidth $h_n=\frac{h_1}{\sqrt{n-1}}$\;
+    Compute $V_n = h_n^d$\;
+    \For{$i=1$ \KwTo $n$}{
+        $\tau_i \leftarrow \tau\setminus\{x_i\}$\;
+        $y_i \leftarrow \dfrac{1}{n-1}\sum_{x\in\tau_i}\dfrac{1}{V_n}\,
+        \phi\!\left(\dfrac{x_i-x}{h_n}\right)$\;
+    }
+    $S \leftarrow \{(x_i,y_i)\}_{i=1}^n$\;
+    Train ANN by regression on $S$ (e.g.\ MSE loss)\;
+    $\hat p_\theta(\cdot)\leftarrow$ function computed by the trained ANN\;
+    \end{algorithm}
     \subsubsection{Output Constraints and Theoretical Properties of PNNs}
-    A Parzen Neural Network (PNN) is trained to regress density targets and
-    then used as a non-negative density surrogate $\hat{p}:\mathbb{R}^d\to\mathbb{R}_+$.
-    Since a probability density must satisfy non-negativity, the output layer
-    is chosen as
+    A PNN is trained to regress density targets and is used as a non-negative
+    density surrogate $\hat p:\mathbb{R}^d\to\mathbb{R}_+$. Non-negativity is
+    enforced by choosing the output as
     \begin{equation}
-        \hat{p}(x) = g(z(x)), \qquad g:\mathbb{R}\to\mathbb{R}_+,
+        \hat p(x) = g(z(x)), \qquad g:\mathbb{R}\to\mathbb{R}_+,
     \end{equation}
     so that
     \begin{equation}
-        \hat{p}(x) \ge 0, \quad \forall x \in \mathbb{R}^d.
+        \hat p(x)\ge 0,\qquad \forall x\in\mathbb{R}^d.
     \end{equation}
-    Typical choices are ReLU/softplus or exponential activations.
+    Typical choices are ReLU or a scaled sigmoid.
 
-    A PNN does not automatically enforce the normalization condition
+    A PNN does not enforce normalization:
     \begin{equation}
-        \int_{\mathbb{R}^d} \hat{p}(x)\,dx = 1.
+        \int_{\mathbb{R}^d}\hat p(x)\,dx \neq 1 \quad \text{in general}.
     \end{equation}
-    In general,
+    Therefore $\hat p$ is interpreted as an unnormalized density estimate. When
+    a proper pdf is required in our implementation, we normalize on the fixed
+    evaluation rectangle $D\subset\mathbb{R}^2$ (the \texttt{Plotter} domain):
     \begin{equation}
-        \int_{\mathbb{R}^d} \hat{p}(x)\,dx \neq 1,
+        Z=\int_D \hat p(x)\,dx, \qquad p_{\text{norm}}(x)=\frac{\hat p(x)}{Z}.
     \end{equation}
-    so $\hat{p}$ should be interpreted as an unnormalized density estimate.
-    When a proper pdf is required, one selects a compact region $X\subset\mathbb{R}^d$
-    capturing the essential support of the distribution and normalizes on $X$:
-    \begin{equation}
-        Z = \int_{X} \hat{p}(x)\,dx, \qquad p_{\text{norm}}(x) = \frac{\hat{p}(x)}{Z}.
-    \end{equation}
-    In practice, $X$ is estimated from the data after normalization/standardization
-    (e.g., bounding box, ellipsoid, convex hull, or high-quantile level set).
-    Restricting integration to compact $X$ makes numerical normalization feasible.
-    If $X$ admits uniform sampling and known volume, Monte Carlo integration yields
-    \begin{equation}
-        Z \approx \mathrm{vol}(X)\,\frac{1}{M}\sum_{m=1}^{M}\hat{p}(u_m), 
-        \qquad u_m\sim\mathrm{Unif}(X).
-    \end{equation}
+    Numerically, $Z$ is approximated by a Riemann sum on the same uniform grid
+    used for visualization and evaluation.
 
-    \paragraph{Remark (oracle targets vs. sample-only training).}
-    In synthetic experiments one could evaluate the ground-truth density $p(x)$ at each
-    sampled point $x_i$ and train a network with labels $y_i=p(x_i)$. These are called
-    \emph{oracle targets} because they use privileged information (the exact mixture
-    parameters) that would not be available in a real density-estimation setting.
-    They can be useful for debugging, but they do not reflect the actual task of learning
-    from samples only.
-
-    In this report we \textbf{do not} train the PNN on $y_i=p(x_i)$. We train only from samples
-    by maximizing likelihood under the learned density model (see Experimental Setup).
+    The targets $y_i$ are constructed with a leave-one-out Parzen estimator,
+    which avoids the self-kernel contribution and yields an (asymptotically)
+    unbiased estimate at sample locations:
+    \begin{equation}
+        y_i=\frac{1}{n-1}\sum_{x\in\tau\setminus\{x_i\}}\frac{1}{V_n}
+        \phi\!\left(\frac{x_i-x}{h_n}\right).
+    \end{equation}
+    Since targets are available only at the sample locations, the behavior
+    between and outside samples is determined by the inductive bias of the
+    network architecture.
 
     \paragraph{Exploiting the support $X$ (practical and mathematical view).}
     Standard activations are non-local basis functions; therefore fitting
-    $\hat{p}(x_i)\approx y_i$ does not imply $\hat{p}(x)\to 0$ away from the data
+    $\hat p(x_i)\approx y_i$ does not imply $\hat p(x)\to 0$ away from the data
     and may generate heavy tails. To encourage compact support, boundary
-    constraints can be introduced. Let $\xi$ be the diameter of $X$ and set
+    constraints can be introduced. In our code, $X$ is taken to be the same
+    rectangle as the plot/evaluation domain $D$. Let $\xi$ be the diameter of $X$ and set
     $\delta=\alpha\xi$ with small $\alpha\in(0,1)$. Define
     \begin{equation}
-        B_\delta = \{x\in\mathbb{R}^d \mid \mathrm{dist}(x,X)<\delta\}, \qquad
-        \overline{B}_\delta = B_\delta\setminus X,
+        B_\delta=\{x\in\mathbb{R}^d\mid \mathrm{dist}(x,X)<\delta\}, \qquad
+        \overline{B}_\delta=B_\delta\setminus X,
     \end{equation}
-    where $\mathrm{dist}(x,X)=\inf_{y\in X}\|x-y\|$. Sample $k<n$ points
-    $\tilde{x}_j\sim\mathrm{Unif}(\overline{B}_\delta)$ and add zero-density labels
-    $S_\delta=\{(\tilde{x}_j,0)\}_{j=1}^k$. Training on $S\cup S_\delta$ can be
+    with $\mathrm{dist}(x,X)=\inf_{y\in X}\|x-y\|$. Sample
+    $\tilde x_j\sim\mathrm{Unif}(\overline{B}_\delta)$ and add zero-density
+    labels $S_\delta=\{(\tilde x_j,0)\}$. Training on $S\cup S_\delta$ can be
     interpreted as minimizing
     \begin{equation}
-        \min_{\theta}\ \frac{1}{n}\sum_{i=1}^{n}\big(\hat{p}_\theta(x_i)-y_i\big)^2
-        + \lambda\,\frac{1}{k}\sum_{j=1}^{k}\hat{p}_\theta(\tilde{x}_j)^2,
+        \min_\theta\ \frac{1}{n}\sum_{i=1}^n(\hat p_\theta(x_i)-y_i)^2
+        +\lambda\frac{1}{k}\sum_{j=1}^k \hat p_\theta(\tilde x_j)^2,
     \end{equation}
-    which penalizes probability mass near the boundary of $X$. This promotes
-    $\hat{p}(x)\approx 0$ outside the data support, stabilizes numerical
-    normalization, and mitigates spurious heavy tails.
-
+    which penalizes probability mass near the boundary of $X$, stabilizes
+    numerical normalization, and mitigates spurious heavy tails.
 
 \section{Experimental Setup}
 \paragraph{Abstract.}
@@ -221,12 +227,14 @@ with means $\mu_m\in\mathbb{R}^2$ and positive semidefinite covariances $\Sigma_
 Using mixtures provides multimodal targets with controllable overlap and anisotropy.
 
 For PW estimation we use a Gaussian kernel density estimator (as implemented in
-    \texttt{ParzenWindowEstimator}). In $d=2$ dimensions, with bandwidth $h>0$,
+    	\texttt{ParzenWindowEstimator}). In $d=2$ dimensions, with effective bandwidth $h_n>0$,
 \begin{equation}
-    \hat{p}_{\mathrm{PW},h}(x)
-    = \frac{1}{n}\sum_{i=1}^{n}\mathcal{N}(x;x_i,h^2 I_2)
-    = \frac{1}{n\,(2\pi h^2)}\sum_{i=1}^{n}\exp\!\left(-\frac{\|x-x_i\|^2}{2h^2}\right).
+    \hat{p}_{\mathrm{PW},h_n}(x)
+    = \frac{1}{n}\sum_{i=1}^{n}\mathcal{N}(x;x_i,h_n^2 I_2)
+    = \frac{1}{n\,(2\pi h_n^2)}\sum_{i=1}^{n}\exp\!\left(-\frac{\|x-x_i\|^2}{2h_n^2}\right).
 \end{equation}
+In the implementation, $h_n$ is computed from a user-chosen $h_1$ via
+$h_n=\tfrac{h_1}{\sqrt{n-1}}$.
 \paragraph{Why Gaussian kernels.}
 Gaussian kernels are used because the ground truth is itself a mixture of Gaussians:
 $p(x)=\sum_{m=1}^{M}\pi_m\,\mathcal{N}(x;\mu_m,\Sigma_m)$. Using Gaussian kernels makes both PW and
@@ -235,28 +243,27 @@ the PNN model class naturally matched to the target family: (i) the estimators r
 mixtures of Gaussians), and (iii) with sufficient components/basis functions the estimator
 can approximate multi-modal Gaussian mixtures with controllable overlap.
 
-For PNN estimation, the implementation in \texttt{estimator.py} uses a kernel (RBF) network
-that parameterizes a density with a standard multilayer perceptron (MLP).
-Concretely, the network outputs an unnormalized positive score
-\begin{equation}
-    	ilde p_\theta(x) = g\big(f_\theta(x)\big),\qquad g:\mathbb{R}\to\mathbb{R}_+,
-\end{equation}
-and it is turned into a proper pdf on the fixed evaluation rectangle $D$ by explicit normalization:
-\begin{equation}
-    p_\theta(x) = \frac{\tilde p_\theta(x)}{Z_\theta},\qquad Z_\theta = \int_D \tilde p_\theta(u)\,du.
-\end{equation}
-In the implementation, $Z_\theta$ is approximated by a differentiable Riemann sum on the same
-uniform grid used for evaluation, so that the resulting $p_\theta$ integrates (approximately) to $1$.
+For PNN estimation, the implementation in \texttt{estimator.py} follows
+Algorithm~\ref{alg:train-pnn}: an MLP is trained by \emph{regression} on leave-one-out
+Parzen targets computed from the samples.
+Concretely, for each training sample $x_i$ we compute a target $y_i$ using a Gaussian kernel
+with effective bandwidth $h_n=\tfrac{h_1}{\sqrt{n-1}}$ and $V_n=h_n^d$, and we train the network
+to match these targets (typically with an MSE-type loss).
 
-\paragraph{Implementation note.}
-We use a smooth positive output map $g$ (softplus) so that $\tilde p_\theta(x)>0$ and
-$\log p_\theta(x)$ is well-defined during maximum-likelihood training.
+\paragraph{Output parameterization and normalization used for evaluation.}
+The MLP uses sigmoid hidden activations (1 or 2 hidden layers). At the output we enforce
+non-negativity either with ReLU or with a scaled sigmoid $A\,\sigma(z)$. In addition, the code
+supports a \emph{log-density} parameterization, where the network outputs an unnormalized
+log-score and exponentiation is applied when constructing the density.
+For plotting and evaluation on a fixed grid $D$, the resulting non-negative surface is
+normalized by a Riemann-sum approximation of $Z=\int_D \hat p_\theta(u)\,du$ so that the plotted
+density integrates (approximately) to 1 over $D$.
 
 
 \paragraph{Learnable parameters.}
 All PNN parameters are the neural network weights/biases in $f_\theta$.
 The shape of $f_\theta$ (hidden-layer widths and activation) is the architectural choice
-that we sweep in the experiments.
+that we sweep in the experiments, together with the \emph{learning rate} used by Adam.
 
 \paragraph{How can we match a ground truth with different covariances?}
 Although the ground truth is a Gaussian mixture with possibly anisotropic covariances,
@@ -277,22 +284,24 @@ sets to enable controlled sweeps:
     bias--variance trade-off and convergence behavior as data increases.
     \item \emph{PW bandwidth.} A set $h\in\mathcal{H}$ spanning small to large smoothing
     is used. Small $h$ reduces bias but increases variance, while large $h$ oversmooths.
-    \item \emph{PNN hyperparameters.} We sweep the neural network \emph{architecture}, i.e.
-    the number of hidden layers, the number of units per layer, and the activation function.
-    Each architecture is trained by maximum likelihood with explicit normalization over $D$.
+    \item \emph{PNN hyperparameters.} We sweep the neural network \emph{architecture} (1 or 2
+    sigmoid hidden layers and the output nonlinearity: ReLU or scaled sigmoid) \emph{and} the
+    	extbf{learning rate} used by Adam. Each configuration is trained by regression on
+    leave-one-out Parzen targets (Algorithm~\ref{alg:train-pnn}); optional regularizers such as
+    boundary penalties can be enabled, but the core training signal remains the Parzen targets.
 \end{itemize}
 
-\paragraph{Chosen PNN architectures (5 variants).}
-We compare five MLP architectures (depth/width and activation diversity):
+\paragraph{Chosen PNN architectures.}
+We compare four prompt-compliant MLP configurations (sigmoid hidden layers; ReLU or scaled-sigmoid output):
 \begin{itemize}
-    \item \textbf{[10] + ReLU}
-    \item \textbf{[20,10] + Tanh}
-    \item \textbf{[50] + Sigmoid}
-    \item \textbf{[30,20,10] + LeakyReLU}
-    \item \textbf{[100,50] + ELU}
+    \item \textbf{[20] + output scaled-sigmoid ($A$ auto)}
+    \item \textbf{[30,20] + output scaled-sigmoid ($A$ auto)}
+    \item \textbf{[30,20] + output ReLU}
+    \item \textbf{[20] + output ReLU}
 \end{itemize}
-This set is useful because it probes how density-estimation accuracy depends on representation
-capacity (depth/width) and nonlinearity, while keeping the training objective fixed (MLE).
+This set probes how density-estimation accuracy depends on representation capacity (depth/width)
+and the non-negativity constraint at the output, while keeping the training objective fixed
+(regression on Parzen targets).
 
 \subsection{Setup steps}
 \subsubsection{Ancestral sampling from a Gaussian mixture (our case)}
@@ -309,30 +318,25 @@ For training the estimators we use only the sampled locations $\{x_i\}_{i=1}^{n}
 	\textbf{2) Training/estimating the density.}
 \begin{itemize}
     \item \emph{PW:} for each $h\in\mathcal{H}$, compute $\hat{p}_{\mathrm{PW},h}$ from the sample set.
-    \item \emph{PNN (maximum likelihood):} train the kernel-mixture model by maximizing
-    the sample log-likelihood under $p_\theta$. Given samples $\{x_i\}_{i=1}^n$,
-    the objective is
-    \begin{equation}
-        \max_{\theta}\ \frac{1}{n}\sum_{i=1}^{n}\log p_\theta(x_i)
-        \quad\Longleftrightarrow\quad
-        \min_{\theta}\ \mathcal{L}_{\mathrm{NLL}}(\theta)
-        = -\frac{1}{n}\sum_{i=1}^{n}\log p_\theta(x_i).
-    \end{equation}
+    \item \emph{PNN (regression on Parzen targets):} compute leave-one-out Parzen targets
+    $S=\{(x_i,y_i)\}_{i=1}^n$ using a Gaussian kernel with $h_n=\tfrac{h_1}{\sqrt{n-1}}$, then train
+    the MLP by minimizing an MSE-type loss between the network output and $y_i$.
 \end{itemize}
 
 \subsubsection{Loss function and optimization}
-Let $\hat{p}_\theta$ denote the PNN density model with parameters $\theta$ (kernel centers, mixture
-weights, and covariance parameters). Since $p_\theta$ is a proper pdf on $D$, we can train it by
-maximum likelihood on samples. The loss minimized in the implementation is the negative
-log-likelihood (NLL):
+Let $f_\theta$ be the PNN network and let $y_i$ be the leave-one-out Parzen target associated with
+$x_i$. The core training objective is regression:
 \begin{equation}
-    \mathcal{L}_{\mathrm{NLL}}(\theta) = -\frac{1}{n}\sum_{i=1}^{n}\log \hat{p}_\theta(x_i).
+    \mathcal{L}_{\mathrm{PNN}}(\theta)=\frac{1}{n}\sum_{i=1}^{n}\big(f_\theta(x_i)-y_i\big)^2,
 \end{equation}
+or, in log-density mode, an MSE on log-targets.
 Optimization is performed with Adam, a first-order stochastic gradient method that updates
 parameters by combining gradients $\nabla_\theta\mathcal{L}$ with exponential moving averages
 of first and second moments (adaptive step sizes per parameter). In our script the updates are
 performed for a fixed number of epochs; each epoch corresponds to one full pass over the sampled
-training points.
+training points. We sweep learning rates across a predefined grid and record the training
+loss curve (regression loss on Parzen targets) as well as an evaluation MSE against the ground-truth
+density on a fixed evaluation grid.
 
 	\textbf{3) Common evaluation protocol.} Let $D\subset\mathbb{R}^2$ be a fixed evaluation domain
 (a rectangle covering the mixtures) and let $\{u_m\}_{m=1}^{M_D}$ be a uniform grid on $D$.
@@ -349,20 +353,5 @@ performance measure.
 hyperparameter grids produces the empirical comparison required in the abstract goal:
 benchmark PW and PNN on known 2D densities while varying the number of extracted samples,
 the network architecture, and the key hyperparameters controlling smoothness and capacity.
-
-\section{Results}
-The logs indicate that:
-\begin{itemize}
-    \item For Parzen Windows, the bandwidth $h$ controls the bias--variance trade-off: small $h$ reduces bias but increases variance, while large $h$ oversmooths the estimate.
-    \item For the neural PNN, performance depends on the MLP architecture (depth/width and activation), since it controls the function class used to represent the log-density on the compact domain $D$.
-    \item The reported figures summarize the error values over the explored architecture choices for each mixture.
-\end{itemize}
-
-\section{Conclusions}
-The experiment highlights the role of kernel parameterization in PNN performance: more flexible
-kernel covariances can reduce the number of kernels required to approximate anisotropic mixture
-components, while simpler parameterizations can still work given sufficient $K$. The integration
-of Parzen window estimation with trainable kernel networks is promising for density estimation
-problems.
 
 \end{document}

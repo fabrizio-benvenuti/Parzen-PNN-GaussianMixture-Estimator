@@ -11,101 +11,397 @@ import copy
 os.makedirs("figures", exist_ok=True)
 os.makedirs("logs", exist_ok=True)
 
+
+def _dx_dy_from_plotter(plotter) -> tuple[float, float]:
+    dx = float(plotter.x[1] - plotter.x[0]) if len(plotter.x) > 1 else 1.0
+    dy = float(plotter.y[1] - plotter.y[0]) if len(plotter.y) > 1 else 1.0
+    return dx, dy
+
+
+def  _effective_bandwidth(base_bandwidth: float, sample_count: int) -> float:
+    """Scale base bandwidth h_1 into h_n per Parzen rule h_1/sqrt(n-1)."""
+    if not np.isfinite(base_bandwidth) or base_bandwidth <= 0:
+        raise ValueError("Bandwidth h_1 must be finite and > 0")
+    n = int(sample_count)
+    if n <= 1:
+        return float(base_bandwidth)
+    return float(base_bandwidth) / float(np.sqrt(n - 1))
+
+
+def _bottom_20_bounds(values: np.ndarray) -> tuple[float, float] | None:
+    """Return (min, min + 20% range) bounds for finite values, with padding fallback."""
+    if values.size == 0:
+        return None
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return None
+    ymin = float(np.min(finite))
+    ymax = float(np.max(finite))
+    delta = float(ymax - ymin)
+    if delta <= 0.0:
+        pad = max(1e-12, abs(ymin) * 0.05)
+        return ymin - pad, ymin + pad
+    return ymin, ymin + 0.20 * delta
+
+
+def compute_leave_one_out_kde_targets(points_xy: np.ndarray, h1: float) -> np.ndarray:
+    """Compute leave-one-out Parzen targets y_i using isotropic Gaussian kernels.
+
+    Given x_i in R^2:
+
+        y_i = (1/(n-1)) * sum_{j != i} N(x_i | x_j, h^2 I)
+
+    where N(·|μ, h^2 I) includes the 2D Gaussian normalization 1/(2π h^2).
+    """
+    pts = np.asarray(points_xy, dtype=float)
+    if pts.ndim != 2 or pts.shape[1] != 2:
+        raise ValueError("points_xy must have shape (n, 2)")
+    n = int(pts.shape[0])
+    if n < 2:
+        raise ValueError("Need at least 2 samples for leave-one-out KDE targets")
+    h = _effective_bandwidth(float(h1), n)
+
+    diffs = pts[:, None, :] - pts[None, :, :]
+    dist2 = np.sum(diffs * diffs, axis=2)
+    k = np.exp(-dist2 / (2.0 * h * h))
+    np.fill_diagonal(k, 0.0)
+
+    norm = 1.0 / (2.0 * np.pi * h * h)
+    y = (norm * np.sum(k, axis=1)) / float(n - 1)
+    return y
+
+
+def compute_kde(points_eval_xy: np.ndarray, points_train_xy: np.ndarray, h1: float) -> np.ndarray:
+    """Compute Parzen KDE at evaluation points using isotropic Gaussian kernels.
+
+    For x in R^2:
+
+        KDE(x) = (1/n) * sum_j N(x | x_j, h^2 I)
+
+    where N includes the 2D Gaussian normalization 1/(2π h^2).
+    """
+    X = np.asarray(points_eval_xy, dtype=float)
+    T = np.asarray(points_train_xy, dtype=float)
+    if X.ndim != 2 or X.shape[1] != 2:
+        raise ValueError("points_eval_xy must have shape (m, 2)")
+    if T.ndim != 2 or T.shape[1] != 2:
+        raise ValueError("points_train_xy must have shape (n, 2)")
+    n = int(T.shape[0])
+    if n < 1:
+        raise ValueError("Need at least 1 training sample")
+    h = _effective_bandwidth(float(h1), n)
+
+    diffs = X[:, None, :] - T[None, :, :]
+    dist2 = np.sum(diffs * diffs, axis=2)
+    k = np.exp(-dist2 / (2.0 * h * h))
+    norm = 1.0 / (2.0 * np.pi * h * h)
+    y = (norm * np.sum(k, axis=1)) / float(n)
+    return y
+
+
+def sample_boundary_points_outside_plot(plotter, alpha: float, k: int) -> np.ndarray:
+    r"""Sample k points from a padded rectangle around the plot domain, rejecting inside points.
+
+    The plot rectangle is the support X. We sample from the shell \bar B_δ = (X padded by δ) \ X,
+    with δ = alpha * diameter(X).
+    """
+    min_x = float(np.min(plotter.x))
+    max_x = float(np.max(plotter.x))
+    min_y = float(np.min(plotter.y))
+    max_y = float(np.max(plotter.y))
+    diameter = float(np.sqrt((max_x - min_x) ** 2 + (max_y - min_y) ** 2))
+    delta = float(alpha) * diameter
+
+    pad_min_x = min_x - delta
+    pad_max_x = max_x + delta
+    pad_min_y = min_y - delta
+    pad_max_y = max_y + delta
+
+    pts: list[list[float]] = []
+    attempts = 0
+    max_attempts = max(10000, 10 * int(k))
+    while len(pts) < int(k) and attempts < max_attempts:
+        x = float(np.random.uniform(pad_min_x, pad_max_x))
+        y = float(np.random.uniform(pad_min_y, pad_max_y))
+        inside = (min_x <= x <= max_x) and (min_y <= y <= max_y)
+        if not inside:
+            pts.append([x, y])
+        attempts += 1
+    return np.asarray(pts, dtype=float)
+
 class ParzenNeuralNetwork(nn.Module):
-    r"""Parzen Neural Network implemented as an MLP density model on a compact 2D domain.
+    r"""Parzen Neural Network (PNN) as required by the project prompt.
 
-    This class models an *unnormalized* positive function \tilde p_\theta(x) via an MLP
-    and turns it into a proper pdf on a fixed rectangular domain D by explicit normalization:
+    - Input: 2D point (x, y)
+    - Hidden layers: 1 or 2 layers, sigmoid activation
+    - Output: either ReLU, or scaled sigmoid A·sigmoid(z)
 
-        p_\theta(x) = \tilde p_\theta(x) / Z_\theta,   Z_\theta = \int_D \tilde p_\theta(u) du
-
-    In code, Z_\theta is approximated by a differentiable Riemann sum on the same plot grid.
-
-    The "architecture" truly refers to the neural network structure:
-      - hidden layer widths (list)
-      - activation function
+    Training targets are NOT oracle mixture pdf values; they are leave-one-out Parzen estimates
+    computed from samples only.
     """
 
-    def __init__(self, input_dim: int = 2, hidden_layers=None, activation: nn.Module | None = None):
+    def __init__(
+        self,
+        hidden_layers: list[int] | tuple[int, ...],
+        *,
+        output_activation: str = "relu",
+        output_scale: float | str | None = 1.0,
+        density_parameterization: str = "density",
+        eps: float = 1e-12,
+    ):
         super().__init__()
-        if input_dim != 2:
-            raise ValueError("This implementation currently assumes input_dim=2.")
+        hidden_layers = list(hidden_layers)
+        if len(hidden_layers) not in (1, 2):
+            raise ValueError("PNN must have 1 or 2 hidden layers")
+        if not all(int(w) > 0 for w in hidden_layers):
+            raise ValueError("hidden layer widths must be positive")
 
-        if hidden_layers is None:
-            hidden_layers = [10]
-        if activation is None:
-            activation = nn.ReLU()
+        self.eps = float(eps)
+        self.density_parameterization = str(density_parameterization).lower()
+        if self.density_parameterization not in ("density", "log_density"):
+            raise ValueError("density_parameterization must be 'density' or 'log_density'")
 
-        self.input_dim = int(input_dim)
-        self.hidden_layers = list(hidden_layers)
-        self.activation = activation
-        self.eps = 1e-12
+        self.output_activation = str(output_activation).lower()
+        self.output_scale: float | None
+        if output_scale is None:
+            self.output_scale = None
+        elif isinstance(output_scale, str):
+            if output_scale.strip().lower() == "auto":
+                self.output_scale = None
+            else:
+                self.output_scale = float(output_scale)
+        else:
+            self.output_scale = float(output_scale)
+        if self.output_activation not in ("relu", "sigmoid"):
+            raise ValueError("output_activation must be 'relu' or 'sigmoid'")
 
-        layers = []
-        prev = self.input_dim
-        for width in self.hidden_layers:
+        layers: list[nn.Module] = []
+        prev = 2
+        for width in hidden_layers:
             layers.append(nn.Linear(prev, int(width)))
-            layers.append(copy.deepcopy(self.activation))
+            layers.append(nn.Sigmoid())
             prev = int(width)
         layers.append(nn.Linear(prev, 1))
         self.net = nn.Sequential(*layers)
-        self.positive = nn.Softplus()
 
-    @staticmethod
-    def _grid_from_plotter(plotter) -> torch.Tensor:
+        # Avoid "dead" ReLU at init: if the final pre-activation starts negative everywhere,
+        # ReLU would output ~0 and gradients would be zero. A small positive bias prevents this.
+        if self.output_activation == "relu":
+            last = self.net[-1]
+            if isinstance(last, nn.Linear) and last.bias is not None:
+                nn.init.constant_(last.bias, 0.1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.ndim != 2 or x.shape[1] != 2:
+            raise ValueError("x must have shape (N, 2)")
+        z = self.net(x).squeeze(-1)
+        if self.density_parameterization == "log_density":
+            return z
+
+        if self.output_activation == "relu":
+            out = torch.relu(z)
+        else:
+            scale = 1.0 if self.output_scale is None else float(self.output_scale)
+            out = scale * torch.sigmoid(z)
+        return out
+
+    def estimate_pdf(self, plotter) -> np.ndarray:
         grid_points = np.c_[plotter.X.ravel(), plotter.Y.ravel()]
-        return torch.tensor(grid_points, dtype=torch.float32)
-
-    @staticmethod
-    def _dx_dy_from_plotter(plotter) -> tuple[float, float]:
-        dx = float(plotter.x[1] - plotter.x[0]) if len(plotter.x) > 1 else 1.0
-        dy = float(plotter.y[1] - plotter.y[0]) if len(plotter.y) > 1 else 1.0
-        return dx, dy
-
-    def unnormalized_density(self, x: torch.Tensor) -> torch.Tensor:
-        # Positive, smooth, avoids log(0)
-        out = self.net(x).squeeze(-1)
-        return self.positive(out) + self.eps
-
-    def log_Z(self, plotter) -> torch.Tensor:
-        grid_tensor = self._grid_from_plotter(plotter)
-        dx, dy = self._dx_dy_from_plotter(plotter)
-        z = torch.sum(self.unnormalized_density(grid_tensor)) * (dx * dy)
-        return torch.log(z + self.eps)
-
-    def log_prob(self, x: torch.Tensor, plotter) -> torch.Tensor:
-        log_unnorm = torch.log(self.unnormalized_density(x))
-        return log_unnorm - self.log_Z(plotter)
-
-    def estimate_pdf(self, plotter):
-        grid_tensor = self._grid_from_plotter(plotter)
+        grid_tensor = torch.tensor(grid_points, dtype=torch.float32)
+        dx, dy = _dx_dy_from_plotter(plotter)
         with torch.no_grad():
-            pdf_values = torch.exp(self.log_prob(grid_tensor, plotter)).cpu().numpy()
-        return pdf_values.reshape(plotter.X.shape)
+            raw = self.forward(grid_tensor).cpu().numpy().reshape(plotter.X.shape)
+            if self.density_parameterization == "log_density":
+                unnorm = np.exp(raw)
+            else:
+                unnorm = raw
+        Z = float(np.sum(unnorm) * (dx * dy))
+        return unnorm / (Z + 1e-12)
 
-    def train_network(self, points, plotter, log_file=None, learning_rate=0.01, epochs=500):
-        """Train by maximum likelihood on samples, with explicit normalization on D."""
+    def train_network(
+        self,
+        points,
+        plotter,
+        *,
+        bandwidth: float,
+        mixture=None,
+        log_file=None,
+        learning_rate: float = 1e-3,
+        epochs: int = 1500,
+        boundary_points=None,
+        lambda_boundary: float = 0.0,
+        verbose: bool = True,
+        loss_mode: str = "relative",
+        weight_decay: float = 0.0,
+        num_uniform_points: int = 0,
+    ):
+        """Train by regression on leave-one-out Parzen targets.
+
+        loss_mode:
+          - "mse": (f(x_i) - y_i)^2
+          - "relative": ((f - y)/(y+eps))^2
+          - "log": (log(f+eps) - log(y+eps))^2
+        """
         points_xy = np.asarray(points)[:, :2]
-        points_tensor = torch.tensor(points_xy, dtype=torch.float32)
-        optimizer = optim.Adam(self.parameters(), lr=learning_rate)
+        n = int(points_xy.shape[0])
+        if n < 2:
+            raise ValueError("Need at least 2 samples to train")
 
-        for epoch in range(epochs):
+        h1 = float(bandwidth)
+        h_n = _effective_bandwidth(h1, n)
+        targets = compute_leave_one_out_kde_targets(points_xy, h1)
+        targets_mean = float(np.mean(targets))
+        if not np.isfinite(targets_mean) or targets_mean <= 0:
+            raise ValueError("KDE targets have non-finite or non-positive mean; cannot normalize")
+        targets = targets / targets_mean
+
+        # Optional interior supervision: add uniform points in the plot domain and target them
+        # with full KDE (still sample-only, still Parzen-based).
+        m_uniform = int(num_uniform_points)
+        uniform_xy = None
+        uniform_targets = None
+        if m_uniform > 0:
+            min_x = float(np.min(plotter.x))
+            max_x = float(np.max(plotter.x))
+            min_y = float(np.min(plotter.y))
+            max_y = float(np.max(plotter.y))
+            ux = np.random.uniform(min_x, max_x, size=m_uniform)
+            uy = np.random.uniform(min_y, max_y, size=m_uniform)
+            uniform_xy = np.column_stack([ux, uy]).astype(float)
+            uniform_targets = compute_kde(uniform_xy, points_xy, h1) / targets_mean
+
+        # If using scaled-sigmoid output and scale wasn't provided, pick it from targets.
+        if self.density_parameterization == "density":
+            if self.output_activation == "sigmoid" and self.output_scale is None:
+                tmax = float(np.max(targets))
+                if np.isfinite(tmax) and tmax > 0:
+                    self.output_scale = 1.5 * tmax
+                else:
+                    self.output_scale = 1.0
+
+        if self.density_parameterization == "log_density":
+            targets = np.log(targets + self.eps)
+            if uniform_targets is not None:
+                uniform_targets = np.log(uniform_targets + self.eps)
+
+        if uniform_xy is not None and uniform_targets is not None:
+            train_xy = np.vstack([points_xy, uniform_xy])
+            train_targets = np.concatenate([targets, uniform_targets])
+        else:
+            train_xy = points_xy
+            train_targets = targets
+
+        points_tensor = torch.tensor(train_xy, dtype=torch.float32)
+        targets_tensor = torch.tensor(train_targets, dtype=torch.float32)
+
+        if verbose:
+            if self.density_parameterization == "log_density":
+                # Here `targets` are already log(KDE/mean).
+                approx_min = float(np.exp(np.min(targets)))
+                approx_max = float(np.exp(np.max(targets)))
+                print(
+                    f"LOG-KDE target stats (h1={h1:.6g}, h_n={h_n:.6g}): "
+                    f"min={targets.min():.3e}, median={np.median(targets):.3e}, mean={targets.mean():.3e}, max={targets.max():.3e} | "
+                    f"approx pdf range: [{approx_min:.3e}, {approx_max:.3e}]"
+                )
+            else:
+                frac_tiny = float(np.mean(targets < 1e-12))
+                print(
+                    f"KDE target stats (h1={h1:.6g}, h_n={h_n:.6g}): "
+                    f"min={targets.min():.3e}, median={np.median(targets):.3e}, mean={targets.mean():.3e}, max={targets.max():.3e}, "
+                    f"frac<1e-12={100.0*frac_tiny:.2f}%"
+                )
+
+        loss_mode = str(loss_mode).lower()
+        if loss_mode not in ("mse", "relative", "log"):
+            raise ValueError("loss_mode must be one of: 'mse', 'relative', 'log'")
+
+        if self.density_parameterization == "log_density" and loss_mode != "mse":
+            raise ValueError("In log_density mode, set loss_mode='mse' (MSE on log-targets)")
+
+        optimizer = optim.Adam(self.parameters(), lr=float(learning_rate), weight_decay=float(weight_decay))
+
+        boundary_tensor = None
+        if boundary_points is not None and len(boundary_points) > 0:
+            boundary_tensor = torch.tensor(np.asarray(boundary_points), dtype=torch.float32)
+
+        eval_mse_history: list[float] = []
+        train_loss_history: list[float] = []
+
+        # Track best weights during training.
+        best_state_dict = None
+        best_metric = float("inf")
+        for epoch in range(int(epochs)):
             optimizer.zero_grad()
-            nll = -torch.mean(self.log_prob(points_tensor, plotter))
-            loss = nll
+
+            if self.density_parameterization == "log_density":
+                pred_log = self.forward(points_tensor)
+                loss_kde = torch.mean((pred_log - targets_tensor) ** 2)
+            else:
+                pred = self.forward(points_tensor)
+                if loss_mode == "mse":
+                    loss_kde = torch.mean((pred - targets_tensor) ** 2)
+                elif loss_mode == "relative":
+                    loss_kde = torch.mean(((pred - targets_tensor) / (targets_tensor + self.eps)) ** 2)
+                else:
+                    log_pred = torch.log(pred + self.eps)
+                    log_tgt = torch.log(targets_tensor + self.eps)
+                    loss_kde = torch.mean((log_pred - log_tgt) ** 2)
+
+            penalty = torch.tensor(0.0)
+            if boundary_tensor is not None and float(lambda_boundary) != 0.0:
+                if self.density_parameterization == "log_density":
+                    logp = self.forward(boundary_tensor)
+                    # Clamp to avoid rare numeric blowups from exp(logp) during long runs.
+                    logp = torch.clamp(logp, max=10.0)
+                    penalty = torch.mean(torch.exp(logp) ** 2)
+                else:
+                    penalty = torch.mean(self.forward(boundary_tensor) ** 2)
+
+            loss = loss_kde + float(lambda_boundary) * penalty
+
+            train_loss_history.append(float(loss_kde.detach().item()))
 
             if torch.isnan(loss) or torch.isinf(loss):
-                print(f"Epoch {epoch}: loss is NaN/Inf. Try reducing learning rate or epochs.")
-                return
+                print(f"Epoch {epoch}: loss is NaN/Inf. Try reducing learning rate or adjusting bandwidth.")
+                return loss.detach(), eval_mse_history, train_loss_history
 
             loss.backward()
             optimizer.step()
-            if epoch % 100 == 0:
-                message = f"Epoch {epoch}: Loss = {loss.item()}\n"
+
+            # Optional: track evaluation MSE on grid against ground truth.
+            if mixture is not None:
+                est_pdf = self.estimate_pdf(plotter)
+                true_pdf = mixture.get_mesh(plotter.pos)
+                mse = float(np.mean((est_pdf - true_pdf) ** 2))
+                eval_mse_history.append(mse)
+
+                if mse < best_metric:
+                    best_metric = mse
+                    best_state_dict = copy.deepcopy(self.state_dict())
+            else:
+                # No mixture available: fall back to tracking best training objective.
+                metric = float(loss_kde.detach().item())
+                if metric < best_metric:
+                    best_metric = metric
+                    best_state_dict = copy.deepcopy(self.state_dict())
+
+            if verbose and epoch % 100 == 0:
+                msg = (
+                    f"Epoch {epoch}: TrainLoss={loss_kde.detach().item():.6e}"
+                    + (f", Pen={penalty.detach().item():.6e}" if boundary_tensor is not None and float(lambda_boundary) != 0.0 else "")
+                    + (f", EvalMSE={eval_mse_history[-1]:.6e}" if eval_mse_history else "")
+                    + f" (h1={h1:.6g}, h_n={h_n:.6g}, lr={float(learning_rate):.6g}, loss={loss_mode})\n"
+                )
                 if log_file:
-                    log_file.write(message)
-                print(message, end='')
-        return loss.detach()
+                    log_file.write(msg)
+                print(msg, end="")
+
+        # Restore best parameters before returning.
+        if best_state_dict is not None:
+            self.load_state_dict(best_state_dict)
+
+        return loss.detach(), eval_mse_history, train_loss_history
 
 class ParzenWindowEstimator:
     def __init__(self, points, window_size=0.1):
@@ -113,7 +409,11 @@ class ParzenWindowEstimator:
         if points.ndim != 2 or points.shape[1] not in (2, 3):
             raise ValueError("Points must be a numpy array with shape (n, 2) or (n, 3).")
         self.points = points[:, :2]
-        self.window_size = float(window_size)
+        self.h1 = float(window_size)
+        if not np.isfinite(self.h1) or self.h1 <= 0:
+            raise ValueError("window_size (h_1) must be finite and > 0")
+        self.sample_count = int(self.points.shape[0])
+        self.window_size = _effective_bandwidth(self.h1, self.sample_count)
         # For a 2D isotropic Gaussian kernel, normalization is 1/(2π h^2)
         self.kernel_norm = 1.0 / (2.0 * np.pi * self.window_size * self.window_size)
 
@@ -200,6 +500,56 @@ class GaussianMixture:
                 points.append([sample[0], sample[1]])
         return np.array(points, dtype=float)
 
+    def sample_points_weighted(self, base_per_gaussian: int, with_pdf: bool = True) -> np.ndarray:
+        """Sample approximately `base_per_gaussian` points per component.
+
+        Total samples = base_per_gaussian * K, distributed proportionally to mixture weights.
+        This matches the project text: "~100 points per Gaussian, increasing with its weight".
+        """
+        base = int(base_per_gaussian)
+        if base <= 0:
+            raise ValueError("base_per_gaussian must be > 0")
+        K = len(self._gaussians)
+        total = base * K
+
+        w = np.asarray(self._weights, dtype=float)
+        raw = w * float(total)
+        counts = np.floor(raw).astype(int)
+        remainder = int(total - int(np.sum(counts)))
+        if remainder > 0:
+            frac = raw - counts
+            order = np.argsort(frac)[::-1]
+            for idx in order[:remainder]:
+                counts[int(idx)] += 1
+
+        # Ensure every component contributes at least 1 sample if possible.
+        for k in range(K):
+            if counts[k] == 0:
+                donor = int(np.argmax(counts))
+                if counts[donor] > 1:
+                    counts[donor] -= 1
+                    counts[k] += 1
+
+        points: list[list[float]] = []
+        for gaussian, count in zip(self._gaussians, counts):
+            if count <= 0:
+                continue
+            samples = gaussian.get_distribution().rvs(size=int(count))
+            samples = np.atleast_2d(samples)
+            for s in samples:
+                if with_pdf:
+                    pdf_value = float(
+                        sum(weight * g.get_distribution().pdf(s) for g, weight in zip(self._gaussians, self._weights))
+                    )
+                    points.append([float(s[0]), float(s[1]), pdf_value])
+                else:
+                    points.append([float(s[0]), float(s[1])])
+        pts = np.asarray(points, dtype=float)
+        # Shuffle so batches aren't grouped by component.
+        rng = np.random.default_rng()
+        rng.shuffle(pts, axis=0)
+        return pts
+
 class Plotter:
     def __init__(self, min_x, max_x, min_y, max_y, num_points):
         self.x = np.linspace(min_x, max_x, num_points)
@@ -285,6 +635,51 @@ def powspace(start, stop, power, num, allow_floats: bool):
         return np.array([int(i) for i in power_array])
 
 
+def compute_support_bounds_for_mixture(mixture: GaussianMixture, k_sigma: float = 3.0) -> tuple:
+    """Axis-aligned rectangular support bounds X from mixture means and covariances.
+    Uses k_sigma standard deviations around each mean, then takes the union across components.
+    Returns ((min_x, max_x), (min_y, max_y)).
+    """
+    min_x = np.inf
+    max_x = -np.inf
+    min_y = np.inf
+    max_y = -np.inf
+    for gaussian, _w in zip(mixture._gaussians, mixture._weights):
+        mu = gaussian.get_mu()
+        cov = gaussian.get_covariance()
+        sx = float(np.sqrt(cov[0, 0]))
+        sy = float(np.sqrt(cov[1, 1]))
+        min_x = min(min_x, mu[0] - k_sigma * sx)
+        max_x = max(max_x, mu[0] + k_sigma * sx)
+        min_y = min(min_y, mu[1] - k_sigma * sy)
+        max_y = max(max_y, mu[1] + k_sigma * sy)
+    return (min_x, max_x), (min_y, max_y)
+
+
+def sample_boundary_points_outside_support(bounds: tuple, alpha: float, k: int) -> np.ndarray:
+    """Sample k points uniformly in the padded rectangle B_δ outside support X.
+    δ = α * diameter(X). We sample in the outer rectangle and reject points inside X.
+    """
+    (min_x, max_x), (min_y, max_y) = bounds
+    diameter = float(np.sqrt((max_x - min_x) ** 2 + (max_y - min_y) ** 2))
+    delta = alpha * diameter
+    pad_min_x = min_x - delta
+    pad_max_x = max_x + delta
+    pad_min_y = min_y - delta
+    pad_max_y = max_y + delta
+    pts = []
+    attempts = 0
+    max_attempts = max(10000, 10 * k)
+    while len(pts) < k and attempts < max_attempts:
+        x = np.random.uniform(pad_min_x, pad_max_x)
+        y = np.random.uniform(pad_min_y, pad_max_y)
+        inside = (min_x <= x <= max_x) and (min_y <= y <= max_y)
+        if not inside:
+            pts.append([x, y])
+        attempts += 1
+    return np.array(pts, dtype=float)
+
+
 def main():
     torch.autograd.set_detect_anomaly(True)
 
@@ -303,23 +698,26 @@ def main():
 
     # Define parameter ranges
     num_samples_per_gaussian = powspace(50, 200, 10, 40, False)  # 50 to 200 samples
-    window_sizes = powspace(0.05, 1.0, 10, 40, True)  # 0.05 to 1.0 window sizes
-    # Five MLP architectures (true neural network architectures)
-    architectures = [
-        {"hidden_layers": [10], "activation": nn.ReLU()},
-        {"hidden_layers": [20, 10], "activation": nn.Tanh()},
-        {"hidden_layers": [50], "activation": nn.Sigmoid()},
-        {"hidden_layers": [30, 20, 10], "activation": nn.LeakyReLU(0.1)},
-        {"hidden_layers": [100, 50], "activation": nn.ELU()},
+    window_sizes = powspace(1.15, 23, 10, 40, True)  # 0.05 to 1.0 window sizes
+    # PNN architectures (prompt-compliant): 1 or 2 hidden layers, sigmoid activation.
+    # Output is either ReLU or scaled sigmoid A·sigmoid(z).
+    pnn_architectures = [
+        {"hidden_layers": [20], "out": "sigmoid", "A": "auto"},
+        {"hidden_layers": [30, 20], "out": "sigmoid", "A": "auto"},
+        {"hidden_layers": [30, 20], "out": "relu", "A": "auto"},
+        {"hidden_layers": [20], "out": "relu", "A": "auto"},
     ]
 
-    def arch_label(arch: dict) -> str:
-        layers = "-".join(str(x) for x in arch["hidden_layers"])
-        act = arch["activation"].__class__.__name__
-        return f"layers_{layers}_act_{act}"
+    def arch_label(cfg: dict) -> str:
+        layers = "-".join(str(x) for x in cfg["hidden_layers"])
+        if cfg["out"] == "relu":
+            return f"MLP_{layers}_sigmoid_outReLU"
+        A = cfg.get("A", "auto")
+        if isinstance(A, str):
+            return f"MLP_{layers}_sigmoid_outSigmoid_Aauto"
+        return f"MLP_{layers}_sigmoid_outSigmoid_A{float(A):.2g}"
 
     mixtures = [mixture1, mixture2, mixture3]
-
     # --------------------------
     # Parzen Window Evaluation (Gaussian KDE)
     for mixture_idx, mixture in enumerate(mixtures):
@@ -371,77 +769,277 @@ def main():
         plt.savefig(overlay_fig_filename, dpi=300, bbox_inches='tight')
         plt.close(fig_overlay)
         print(f"Saved overlay figure: {overlay_fig_filename}")
-
     # --------------------------
-    # Parzen Neural Network (PNN) Evaluation
+    # Parzen Neural Network (PNN) Evaluation with learning-rate sweep and training surfaces
     for mixture_idx, mixture in enumerate(mixtures):
-        print(f"Processing Gaussian Mixture {mixture_idx + 1} with PNN")
+        print(f"Processing Gaussian Mixture {mixture_idx + 1} with PNN and LR sweep")
 
-        errors_nn_arr = []
-        arch_labels = []
+        # Define hyperparameters
+        learning_rates = [5e-3]
+        bandwidths = [2, 7, 12, 16]
+        use_log_density = True
+        # Prepare training samples (~100 per Gaussian, scaled by weight)
+        samples_xy = mixture.sample_points_weighted(100, with_pdf=False)
+        # Optional boundary points set (shell outside plot rectangle)
+        boundary_pts = sample_boundary_points_outside_plot(plotter, alpha=0.1, k=max(20, int(0.3 * len(samples_xy))))
 
-        # Training uses ONLY sample locations (x,y) via maximum likelihood.
-        samples_xy = mixture.sample_points(100, with_pdf=False)
-        for arch in architectures:
-            label = arch_label(arch)
-            log_filename = f"logs/mixture{mixture_idx+1}_{label}.txt"
-            with open(log_filename, "w") as log_file:
-                pnn = ParzenNeuralNetwork(
-                    input_dim=2,
-                    hidden_layers=arch["hidden_layers"],
-                    activation=arch["activation"],
-                )
-                pnn.train_network(samples_xy, plotter, log_file=log_file, learning_rate=0.01, epochs=500)
+        def _h_tag(h: float) -> str:
+            # Safe for filenames
+            return f"{float(h):.2f}".replace(".", "p")
 
-            estimated_pdf_nn = pnn.estimate_pdf(plotter)
-            error_nn = float(np.mean((estimated_pdf_nn - mixture.get_mesh(plotter.pos)) ** 2))
-            arch_labels.append(label)
-            errors_nn_arr.append(error_nn)
-            print(f"Mixture {mixture_idx+1}, {label}: Error = {error_nn}")
+        # Collect results across bandwidths so we can make one learning-results figure per mixture.
+        n_arch_total = len(pnn_architectures)
+        per_arch_eval_mse_by_h: list[list[list[float]]] = [[] for _ in range(n_arch_total)]
+        per_arch_final_mse_by_h: list[list[float]] = [[] for _ in range(n_arch_total)]
+        kde_mse_by_h: list[float] = []
 
-        # Simple error plot across architectures
-        fig_nn = plt.figure(figsize=(16, 9))
-        ax_nn = fig_nn.add_subplot(111)
-        x = np.arange(len(arch_labels))
-        ax_nn.bar(x, np.array(errors_nn_arr), color='green')
-        ax_nn.set_xticks(x)
-        ax_nn.set_xticklabels(arch_labels, rotation=30, ha='right')
-        ax_nn.set_title(f"PNN Errors (Mixture {mixture_idx + 1}, architectures)")
-        ax_nn.set_xlabel("Architecture")
-        ax_nn.set_ylabel("Mean Squared Error")
-        nn_error_fig_filename = f"figures/PNN_errors_mixture{mixture_idx+1}_architectures.jpeg"
+        for bandwidth in bandwidths:
+            # Precompute KDE on grid once per bandwidth (same across architectures).
+            kde_estimator = ParzenWindowEstimator(samples_xy, window_size=float(bandwidth))
+            estimated_pdf_kde = kde_estimator.estimate_pdf(plotter)
+            real_pdf = mixture.get_mesh(plotter.pos)
+            mse_kde = float(np.mean((estimated_pdf_kde - real_pdf) ** 2))
+            kde_mse_by_h.append(mse_kde)
+
+            # Track per-architecture results for this bandwidth
+            arch_labels: list[str] = []
+            per_arch_eval_mse_hist: list[list[float]] = []
+            per_arch_train_loss_hist: list[list[float]] = []
+            per_arch_est_pdf: list[np.ndarray] = []
+            per_arch_final_mse: list[float] = []
+
+            for cfg_idx, cfg in enumerate(pnn_architectures):
+                label = arch_label(cfg)
+                arch_labels.append(label)
+                log_filename = f"logs/mixture{mixture_idx+1}_{label}_h1_{_h_tag(bandwidth)}.txt"
+                best_model = None
+                best_final_mse = float("inf")
+                best_hist: list[float] = []
+                best_train_hist: list[float] = []
+
+                for lr in learning_rates:
+                    with open(log_filename, "a") as log_file:
+                        pnn = ParzenNeuralNetwork(
+                            hidden_layers=cfg["hidden_layers"],
+                            output_activation=cfg["out"],
+                            output_scale=cfg.get("A", "auto"),
+                            density_parameterization="log_density" if use_log_density else "density",
+                        )
+                        _final_loss, mse_hist, train_hist = pnn.train_network(
+                            samples_xy,
+                            plotter,
+                            bandwidth=float(bandwidth),
+                            mixture=mixture,
+                            log_file=log_file,
+                            learning_rate=float(lr),
+                            epochs=3500,
+                            boundary_points=boundary_pts,
+                            lambda_boundary=0.0,
+                            verbose=True,
+                            loss_mode="mse" if use_log_density else "relative",
+                            weight_decay=0.0,
+                            num_uniform_points=len(samples_xy) if use_log_density else 0,
+                        )
+
+                    # Prefer using the final tracked eval MSE when available.
+                    if len(mse_hist) > 0:
+                        final_mse = float(mse_hist[-1])
+                    else:
+                        est_pdf_tmp = pnn.estimate_pdf(plotter)
+                        final_mse = float(np.mean((est_pdf_tmp - real_pdf) ** 2))
+
+                    print(
+                        f"Mixture {mixture_idx+1}, h1={bandwidth:.3f}, {label}, LR={lr}: Final MSE = {final_mse:.6e}"
+                    )
+
+                    if final_mse < best_final_mse:
+                        best_final_mse = final_mse
+                        best_model = pnn
+                        best_hist = list(mse_hist)
+                        best_train_hist = list(train_hist)
+
+                assert best_model is not None
+                est_pdf = best_model.estimate_pdf(plotter)
+                per_arch_est_pdf.append(est_pdf)
+                per_arch_eval_mse_hist.append(best_hist)
+                per_arch_train_loss_hist.append(best_train_hist)
+                per_arch_final_mse.append(float(np.mean((est_pdf - real_pdf) ** 2)))
+
+                # Persist results across bandwidths for consolidated learning plot
+                per_arch_eval_mse_by_h[cfg_idx].append(best_hist)
+                per_arch_final_mse_by_h[cfg_idx].append(float(np.mean((est_pdf - real_pdf) ** 2)))
+
+            # --------------------------
+            # Figure 1: Overlays for this bandwidth (columns = architectures, 2 rows)
+            n_arch = len(pnn_architectures)
+            fig_ov = plt.figure(figsize=(5 * n_arch, 10))
+            fig_ov.suptitle(f"overlays with h_1 = {bandwidth}")
+
+            for j, label in enumerate(arch_labels):
+                # Row 1: KDE vs True
+                ax1 = fig_ov.add_subplot(2, n_arch, j + 1, projection='3d')
+                ax1.plot_surface(plotter.X, plotter.Y, real_pdf, alpha=0.45, cmap='viridis')
+                ax1.plot_surface(plotter.X, plotter.Y, estimated_pdf_kde, alpha=0.45, cmap='cividis')
+                ax1.set_title(f"{label}\nKDE vs True")
+                ax1.set_xlabel("x")
+                ax1.set_ylabel("y")
+                ax1.set_zlabel("pdf")
+
+                # Row 2: PNN vs True
+                ax2 = fig_ov.add_subplot(2, n_arch, n_arch + j + 1, projection='3d')
+                ax2.plot_surface(plotter.X, plotter.Y, real_pdf, alpha=0.45, cmap='viridis')
+                ax2.plot_surface(plotter.X, plotter.Y, per_arch_est_pdf[j], alpha=0.45, cmap='plasma')
+                ax2.set_title(f"{label}\nPNN vs True")
+                ax2.set_xlabel("x")
+                ax2.set_ylabel("y")
+                ax2.set_zlabel("pdf")
+
+            overlays_fig_filename = f"figures/overlays_h1_{_h_tag(bandwidth)}_mixture{mixture_idx+1}.jpeg"
+            plt.tight_layout()
+            plt.savefig(overlays_fig_filename, dpi=300, bbox_inches='tight')
+            plt.close(fig_ov)
+            print(f"Saved overlays figure: {overlays_fig_filename}")
+
+            # --------------------------
+            # Figure 2: Learning results for this bandwidth (columns = architectures, 2 rows)
+            fig_lr = plt.figure(figsize=(5 * n_arch, 10))
+            fig_lr.suptitle(f"learning results h_1 = {bandwidth}")
+
+            for j, label in enumerate(arch_labels):
+                # Row 1: training results (zoom to bottom 20% of MSE range to make minima visible)
+                ax_tr = fig_lr.add_subplot(2, n_arch, j + 1)
+                ax_tr_right = ax_tr.twinx()
+                eval_hist = np.asarray(per_arch_eval_mse_hist[j], dtype=float)
+                train_hist = np.asarray(per_arch_train_loss_hist[j], dtype=float)
+
+                eval_line = None
+                if eval_hist.size > 0:
+                    eval_epochs = np.arange(eval_hist.size)
+                    eval_line = ax_tr.plot(
+                        eval_epochs,
+                        eval_hist,
+                        color='tab:blue',
+                        linewidth=2.2,
+                        label='Eval MSE',
+                    )[0]
+                    bounds = _bottom_20_bounds(eval_hist)
+                    if bounds is not None:
+                        ax_tr.set_ylim(*bounds)
+
+                train_line = None
+                if train_hist.size > 0:
+                    train_epochs = np.arange(train_hist.size)
+                    train_line = ax_tr_right.plot(
+                        train_epochs,
+                        train_hist,
+                        color='tab:orange',
+                        linewidth=2.2,
+                        label='Train MSE',
+                    )[0]
+                    bounds = _bottom_20_bounds(train_hist)
+                    if bounds is not None:
+                        ax_tr_right.set_ylim(*bounds)
+
+                ax_tr.set_title(f"{label}\nTraining results (zoomed)")
+                ax_tr.set_xlabel("Epoch")
+                ax_tr.set_ylabel("Eval MSE", color='tab:blue')
+                ax_tr_right.set_ylabel("Train MSE", color='tab:orange')
+                ax_tr.tick_params(axis='y', colors='tab:blue')
+                ax_tr_right.tick_params(axis='y', colors='tab:orange')
+                ax_tr.grid(True, alpha=0.3)
+
+                legend_lines = [line for line in (eval_line, train_line) if line is not None]
+                if legend_lines:
+                    legend_labels = [line.get_label() for line in legend_lines]
+                    ax_tr.legend(legend_lines, legend_labels, loc='upper right', fontsize='small')
+
+                # Row 2: compare final MSEs (PNN vs KDE)
+                ax_cmp = fig_lr.add_subplot(2, n_arch, n_arch + j + 1)
+                mse_pnn = float(per_arch_final_mse[j])
+                ax_cmp.bar([0, 1], [mse_pnn, mse_kde], color=['tab:purple', 'tab:gray'])
+                ax_cmp.set_xticks([0, 1])
+                ax_cmp.set_xticklabels(["PNN", "KDE"])
+                ax_cmp.set_title(f"{label}\nFinal grid MSE")
+                ax_cmp.set_ylabel("MSE")
+                ax_cmp.grid(True, axis='y', alpha=0.3)
+
+            learning_fig_filename = f"figures/learning_results_h1_{_h_tag(bandwidth)}_mixture{mixture_idx+1}.jpeg"
+            plt.tight_layout()
+            plt.savefig(learning_fig_filename, dpi=300, bbox_inches='tight')
+            plt.close(fig_lr)
+            print(f"Saved learning results figure: {learning_fig_filename}")
+
+        # --------------------------
+        # Consolidated learning results across all bandwidths for this mixture.
+        # Layout: columns = architectures, 2 rows
+        n_arch = len(pnn_architectures)
+        fig_lr_all = plt.figure(figsize=(5 * n_arch, 10))
+        fig_lr_all.suptitle(f"learning results (bandwidth sweep) mixture {mixture_idx + 1}")
+
+        # Build surfaces: bandwidth x epochs
+        max_epochs_tracked = 0
+        for j in range(n_arch):
+            for hist in per_arch_eval_mse_by_h[j]:
+                max_epochs_tracked = max(max_epochs_tracked, len(hist))
+
+        # Determine zoomed z-range (bottom 20% of overall range)
+        all_vals = []
+        for j in range(n_arch):
+            for hist in per_arch_eval_mse_by_h[j]:
+                if len(hist) > 0:
+                    all_vals.extend([float(x) for x in hist if np.isfinite(x)])
+        if len(all_vals) == 0:
+            global_zmin, global_zmax = 0.0, 1.0
+        else:
+            global_zmin = float(np.min(all_vals))
+            global_zmax = float(np.max(all_vals))
+        zoom_zmax = global_zmin + 0.20 * max(1e-18, (global_zmax - global_zmin))
+
+        E = np.arange(max_epochs_tracked) if max_epochs_tracked > 0 else np.arange(1)
+        H = np.array([float(h) for h in bandwidths], dtype=float)
+        EE, HH = np.meshgrid(E, H)
+
+        for j, label in enumerate([arch_label(cfg) for cfg in pnn_architectures]):
+            # Row 1: surface over (epochs, bandwidth)
+            ax_surf = fig_lr_all.add_subplot(2, n_arch, j + 1, projection='3d')
+
+            surface = np.zeros((len(bandwidths), len(E)), dtype=float)
+            for i_h in range(len(bandwidths)):
+                hist = per_arch_eval_mse_by_h[j][i_h] if i_h < len(per_arch_eval_mse_by_h[j]) else []
+                if len(hist) > 0:
+                    vals = np.asarray(hist, dtype=float)
+                    surface[i_h, : len(vals)] = vals
+                    if len(vals) < len(E):
+                        surface[i_h, len(vals) :] = float(vals[-1])
+                else:
+                    surface[i_h, :] = np.nan
+
+            ax_surf.plot_surface(EE, HH, surface, cmap='viridis', linewidth=0, antialiased=False, alpha=0.8)
+            ax_surf.set_title(f"{label}\nTraining results")
+            ax_surf.set_xlabel("Epoch")
+            ax_surf.set_ylabel("h_1")
+            ax_surf.set_zlabel("Eval MSE")
+            ax_surf.set_zlim(global_zmin, zoom_zmax)
+            ax_surf.grid(True)
+            ax_surf.view_init(elev=30, azim=-135)
+
+            # Row 2: MSE vs bandwidth (PNN vs KDE)
+            ax_line = fig_lr_all.add_subplot(2, n_arch, n_arch + j + 1)
+            pnn_mse = np.asarray(per_arch_final_mse_by_h[j], dtype=float)
+            kde_mse = np.asarray(kde_mse_by_h, dtype=float)
+            ax_line.plot(H, pnn_mse, marker='o', color='tab:purple', label='PNN')
+            ax_line.plot(H, kde_mse, marker='o', color='tab:gray', label='KDE')
+            ax_line.set_title(f"{label}\nFinal grid MSE vs h_1")
+            ax_line.set_xlabel("h_1")
+            ax_line.set_ylabel("MSE")
+            ax_line.grid(True, alpha=0.3)
+            ax_line.legend()
+
+        lr_all_filename = f"figures/learning_results_bandwidth_sweep_mixture{mixture_idx+1}.jpeg"
         plt.tight_layout()
-        plt.savefig(nn_error_fig_filename, dpi=300, bbox_inches='tight')
-        plt.close(fig_nn)
-        print(f"Saved PNN error figure: {nn_error_fig_filename}")
-
-        best_idx_nn = int(np.argmin(errors_nn_arr))
-        best_arch_label = arch_labels[best_idx_nn]
-        best_arch = architectures[best_idx_nn]
-        print(f"Best PNN parameters for mixture {mixture_idx+1}: arch = {best_arch_label}")
-
-        # Retrain best architecture for overlay
-        samples_best_nn = mixture.sample_points(100, with_pdf=False)
-        pnn_best = ParzenNeuralNetwork(
-            input_dim=2,
-            hidden_layers=best_arch["hidden_layers"],
-            activation=best_arch["activation"],
-        )
-        pnn_best.train_network(samples_best_nn, plotter, learning_rate=0.01, epochs=500)
-        estimated_pdf_nn_best = pnn_best.estimate_pdf(plotter)
-        real_pdf = mixture.get_mesh(plotter.pos)
-
-        fig_nn_overlay = plt.figure(figsize=(16, 9))
-        ax_nn_overlay = fig_nn_overlay.add_subplot(projection='3d')
-        ax_nn_overlay.plot_surface(plotter.X, plotter.Y, real_pdf, alpha=0.5, cmap='viridis')
-        ax_nn_overlay.plot_surface(plotter.X, plotter.Y, estimated_pdf_nn_best, alpha=0.5, cmap='plasma')
-        ax_nn_overlay.set_title(
-            f"PNN Overlay (Mixture {mixture_idx+1})\nArch = {best_arch_label}"
-        )
-        nn_overlay_fig_filename = f"figures/PNN_overlay_mixture{mixture_idx+1}_{best_arch_label}.jpeg"
-        plt.savefig(nn_overlay_fig_filename, dpi=300, bbox_inches='tight')
-        plt.close(fig_nn_overlay)
-        print(f"Saved PNN overlay figure: {nn_overlay_fig_filename}")
+        plt.savefig(lr_all_filename, dpi=300, bbox_inches='tight')
+        plt.close(fig_lr_all)
+        print(f"Saved consolidated learning results figure: {lr_all_filename}")
 
 
 if __name__ == "__main__":
