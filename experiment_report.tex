@@ -25,53 +25,37 @@
 \end{abstract}
 
 \section{Introduction}
-\subsection{Project objective}
-The objective of the project is to study \emph{non-parametric} density estimation in $\mathbb{R}^2$.
-Given an unlabeled sample set $\{x_i\}_{i=1}^n\subset\mathbb{R}^2$ drawn from an unknown target density
-$p(x)$, we aim to construct an estimate $\hat p(x)$ that approximates the ground truth. In this report,
-the ground-truth densities are two-dimensional Gaussian mixtures with $\{1,3,5\}$ components and the
-estimators compared are the Parzen Window (PW/KDE) and a Parzen Neural Network (PNN).
+\subsection{Project Objective}
+The objective of the project is to study \emph{non-parametric} density estimation in $\mathbb{R}^2$ when the
+ground truth is a two-dimensional Gaussian Mixture Model (GMM). Given an unlabeled sample set
+$\{x_i\}_{i=1}^n\subset\mathbb{R}^2$ drawn i.i.d. from an unknown target density $p(x)$, the goal is to construct an
+estimate $\hat p(x)$ that approximates the true density on a fixed evaluation domain.
 
-\subsection{Ground truth and sampling}
-\subsubsection{Selected PDFs overview}
-The project consists of estimating three previously selected two-dimensional PDFs, each formed by a
-mixture of an odd number of Gaussians (1, 3, and 5 components), using a finite number of sample points
-from them.\newline
-The selection process was carried out choosing each Gaussian's weights and statistical parameters
-(mean and variance) to avoid PDFs with either excessively overlapping peaks or ones that are too
-distant from each other.\newline
-This was done to also check whether high- and low-variance parts of the PDF were being estimated
-correctly.
-
-\subsubsection{Sampling method (ancestral sampling from a mixture)}
-The sampling is done by extracting a set of points from the PDF, normalizing the probability of
-choosing a Gaussian based on its weight in the mixture.\newline
-The extraction process was implemented like so:
-\begin{itemize}
-    \item Use a weighted random choice to select a Gaussian from the mixture.
-    \item Extract a point from the selected Gaussian.
-    \item Compute the PDF value at that point by summing the weighted contributions of all Gaussians
-    in the mixture.
-\end{itemize}
-
-Equivalently, for a ground-truth mixture $p(x)=\sum_{m=1}^{M}\pi_m\,\mathcal{N}(x;\mu_m,\Sigma_m)$, we generate
-i.i.d. samples using the standard ancestral procedure:
+\subsection{Ground Truth and Sampling}
+The estimators are benchmarked against three synthetic target PDFs in $\mathbb{R}^2$, each given by a mixture
+of Gaussians with an odd number of components $M\in\{1,3,5\}$:
+\begin{equation}
+    p(x)=\sum_{m=1}^{M}\pi_m\,\mathcal{N}(x;\mu_m,\Sigma_m),\qquad \pi_m\ge 0,\ \sum_{m=1}^{M}\pi_m = 1.
+\end{equation}
+The unlabeled dataset is generated using \textbf{ancestral sampling} from the mixture:
 \begin{equation}
     J \sim \mathrm{Categorical}(\pi_1,\ldots,\pi_M),
     \qquad X\mid(J=m) \sim \mathcal{N}(\mu_m,\Sigma_m).
 \end{equation}
-In practice, this is implemented by sampling an index $J$ with probabilities $(\pi_m)$ and then sampling
-$X$ from the selected Gaussian component. For training the estimators we use only the sampled locations
-$\{x_i\}_{i=1}^{n}$.
+In practice, an index $J$ is sampled according to the mixture weights and then $X$ is sampled from the chosen
+Gaussian component. Only the sample locations $\{x_i\}_{i=1}^{n}$ are used to train the estimators.
 
-\subsection{Methodologies compared}
-The PDF will then be estimated non-parametrically using the Parzen Window and the Parzen Neural Network
-(PNN). These methods are density estimators that learn from an unlabeled sample set (no class labels).
-The next sections present the theoretical foundations of Parzen Window/KDE, then the PNN construction and
-its implementation-oriented details.
+\subsection{Methods Compared}
+Two non-parametric density estimators are compared:
+\begin{itemize}
+    \item \textbf{Parzen Window (PW / KDE):} a kernel density estimator that averages local kernel
+    contributions centered at the samples.
+    \item \textbf{Parzen Neural Network (PNN):} a neural surrogate trained by regression on Parzen-style
+    targets computed from the samples.
+\end{itemize}
 
 \section{Theoretical Foundations of Density Estimation}
-\subsection{The Parzen Window (KDE) method}
+\subsection{The Parzen Window Method (KDE)}
 Let $Y=\{x_1,\ldots,x_n\}\subset\mathbb{R}^d$ be i.i.d.\ samples drawn from an unknown density $p(x)$.
 For a query point $x_0$, consider a region $R_n(x_0)\subset\mathbb{R}^d$ with volume $V_n$ and let $k_n$
 be the number of samples falling in $R_n$. A generic non-parametric density estimator is
@@ -90,76 +74,62 @@ consistent in probability if and only if
 Two complementary constructions satisfy these conditions: fixing $V_n$ (Parzen Window) or fixing $k_n$
 (k-nearest neighbors).
 
-In the Parzen Window method, $R_n$ is chosen as a hypercube centered at $x_0$ with edge length $h_n$, so
-that $V_n=h_n^d$ and $h_n\to 0$ as $n\to\infty$. Define the window (kernel) function
+In modern form, Parzen Window estimation is presented directly as \emph{kernel density estimation} (KDE):
 \begin{equation}
-    \phi(u) =
-    \begin{cases}
-        1, & |u_j|\le \tfrac{1}{2}, \ \forall j=1,\ldots,d,\\
-        0, & \text{otherwise}.
-    \end{cases}
-    \label{eq:pw-kernel}
+    \hat p_n(x) = \frac{1}{n\,h_n^d}\sum_{i=1}^{n}K\!\left(\frac{x-x_i}{h_n}\right),
+    \qquad K(u)\ge 0,\ \int_{\mathbb{R}^d}K(u)\,du=1.
+    \label{eq:kde-general}
 \end{equation}
-The indicator of whether $x_i$ belongs to $R_n(x_0)$ is then $\phi((x_0-x_i)/h_n)$, yielding
+The historical rectangular window corresponds to choosing $K$ as an indicator over a hypercube; however,
+the experiments considered here use only smooth kernels.
+
+For $d=2$ and an isotropic Gaussian kernel, Eq.~\eqref{eq:kde-general} becomes
 \begin{equation}
-    k_n = \sum_{i=1}^{n} \phi\!\left(\frac{x_0-x_i}{h_n}\right).
-    \label{eq:kn}
+    \hat p_n(x)=\frac{1}{n}\sum_{i=1}^{n}\mathcal{N}(x; x_i, h_n^2 I_2)
+    = \frac{1}{n\,(2\pi h_n^2)}\sum_{i=1}^{n}\exp\!\left(-\frac{\|x-x_i\|^2}{2h_n^2}\right).
+    \label{eq:kde-gaussian-2d}
 \end{equation}
-Substituting \eqref{eq:kn} into \eqref{eq:counting-estimator} gives the Parzen density estimator:
-\begin{equation}
-    p_n(x_0) =
-    \frac{1}{n}\sum_{i=1}^{n}
-    \frac{1}{V_n}\,
-    \phi\!\left(\frac{x_0-x_i}{h_n}\right),
-    \qquad V_n=h_n^d.
-    \label{eq:parzen-estimator}
-\end{equation}
-Equation~\eqref{eq:parzen-estimator} shows that Parzen Window estimation is a kernel machine obtained by
-averaging localized contributions centered at the samples. Replacing the rectangular kernel $\phi$ with
-smooth kernels (e.g.\ Gaussian) yields classical kernel density estimation.
 
-\subsection{Kernel choice}
-\paragraph{Literature form vs. what we implement}
-The classical presentation above uses a \emph{rectangular} window (hard indicator) and estimates $p(x_0)$
-by counting samples in a hypercube around $x_0$. In our implementation we instead use a \emph{Gaussian}
-kernel (Gaussian KDE).
+\subsection{Kernel Choice}
+The counting derivation above is typically introduced with a \emph{rectangular} (hard) window, which
+produces discontinuous estimates and visually blocky density surfaces on a grid. Here a
+    extbf{Gaussian kernel} is used to obtain smooth, infinitely differentiable ($C^\infty$) density estimates.
+Compared to a rectangular kernel, Gaussian KDE avoids discontinuities at window boundaries and yields
+better numerical behavior when gradients are involved (e.g., when KDE targets are distilled into a neural
+surrogate). Importantly, the choice of kernel is a numerical/modelling choice and does \emph{not} assume
+any knowledge of the parametric family of the true density.
 
-\emph{Rectangular window advantages:} simplest derivation and intuitive counting interpretation.
-\emph{Rectangular window disadvantages:} discontinuous (blocky) estimates and strong sensitivity to
-boundary effects.
-
-\emph{Gaussian KDE advantages:} smooth estimates and good numerical behavior (continuous derivatives,
-less blockiness, and stable visualization/evaluation on grids).
-\emph{Gaussian KDE disadvantages:} global support (non-compact tails) and higher computational cost
-without acceleration.
-
-For the purposes of comparing smooth density estimators on mixtures of Gaussians, Gaussian KDE is the
-more appropriate choice.
-
-\subsection{Bandwidth parameterization}
-\paragraph{Notation (bandwidth)}
-Throughout the report we distinguish a user-chosen \emph{base} bandwidth $h_1$ from the \emph{effective}
-bandwidth used by the kernels,
+\subsection{Bandwidth Parameterization}
+A distinction is made between a user-chosen \emph{base} bandwidth $h_1$ and the \emph{effective} bandwidth $h_n$ used in
+the kernels, using the rule
 \begin{equation}
     h_n = \frac{h_1}{\sqrt{n-1}},\qquad V_n=h_n^d.
     \label{eq:hn-def}
 \end{equation}
-The subscript $n$ indicates explicit dependence on the sample size (as required by the consistency
-conditions for Parzen-type estimators). In the experiments, sweeps are reported in terms of $h_1$, while
-the kernel computations use $h_n$.
+The subscript $n$ indicates explicit dependence on the sample size. In standard KDE theory, consistency
+for a smooth kernel in $d$ dimensions is typically obtained by choosing a sequence $h_n$ such that
+\begin{equation}
+    h_n\to 0,\qquad n h_n^d \to \infty \qquad (n\to\infty),
+    \label{eq:kde-consistency}
+\end{equation}
+which balances vanishing bias (from $h_n\to 0$) and vanishing variance (from $n h_n^d\to\infty$). A common
+parametric family is $h_n = h_1 n^{-\alpha}$ with $0<\alpha<\tfrac{1}{d}$.
 
-\subsubsection{Bandwidth parameterization ($h_1$ vs. $h_n$)}
-We use the definition in Eq.~\eqref{eq:hn-def}. In particular, the Parzen Window (Gaussian KDE) baseline
-uses $h_n$ inside the Gaussian normalization and exponent, even though the sweep is reported in terms of
-$h_1$.
+The specific decay in Eq.~\eqref{eq:hn-def} corresponds to the borderline case $\alpha=\tfrac{1}{2}$ in
+$d=2$, for which $n h_n^2$ does \emph{not} diverge asymptotically. Therefore, the choice in
+Eq.~\eqref{eq:hn-def} is treated here as a \emph{finite-sample heuristic} that shrinks the bandwidth
+aggressively as more samples are available. This makes the bias--variance trade-off explicit: if $h_n$
+decreases too slowly the estimator remains biased (oversmoothing), while if it decreases too fast the
+estimate becomes noisy (undersmoothing) because too few samples contribute effectively to each kernel.
+In the experiments, sweeps are reported in terms of $h_1$, while kernel computations use $h_n$.
 
 \section{Parzen Neural Networks (PNN)}
-\subsection{Architecture and training algorithm}
+\subsection{Architecture and Training Algorithm}
 A Parzen Neural Network is an artificial neural network trained to regress non-parametric Parzen Window
 density estimates. Given samples $\tau=\{x_1,\ldots,x_n\}\subset\mathbb{R}^d$, the network learns an
 approximation of the Parzen estimator and is then used as a continuous surrogate of the probability
 density.
-
+\newpage
 \begin{algorithm}
 \caption{Train Parzen Neural Network}\label{alg:train-pnn}
 \KwData{samples $\tau=\{x_1,\ldots,x_n\}$, bandwidth $h_1$, kernel $\phi$, ANN architecture and optimizer hyperparameters}
@@ -171,12 +141,16 @@ Use effective bandwidth $h_n$ (Eq.~\eqref{eq:hn-def}) and $V_n=h_n^d$\;
     \phi\!\left(\dfrac{x_i-x}{h_n}\right)$\;
 }
 $S \leftarrow \{(x_i,y_i)\}_{i=1}^n$\;
+Sample $k$ auxiliary points $u_j\sim\mathrm{Unif}(D)$\;
+\For{$j=1$ \KwTo $k$}{
+    $\tilde y_j \leftarrow \dfrac{1}{n}\sum_{i=1}^{n}\dfrac{1}{V_n}\,\phi\!\left(\dfrac{u_j-x_i}{h_n}\right)$\;
+}
+$S\leftarrow S\cup\{(u_j,\tilde y_j)\}_{j=1}^{k}$\;
 Train ANN by regression on $S$ (e.g.\ MSE loss)\;
 $\hat p_\theta(\cdot)\leftarrow$ function computed by the trained ANN\;
 \end{algorithm}
 
-\subsection{Output and non-negativity constraints}
-\subsubsection{Output constraints, log-density parameterization, and targets}
+\subsection{Output Constraints and Non-Negativity}
 A PNN is trained to regress density targets and is used as a non-negative density surrogate
 $\hat p:\mathbb{R}^d\to\mathbb{R}_+$. Non-negativity is enforced by choosing the output as
 \begin{equation}
@@ -188,17 +162,34 @@ so that
 \end{equation}
 Typical choices are ReLU or a scaled sigmoid.
 
-\paragraph{Log-density parameterization (what the code defaults to)}
-In the script, the default training in \texttt{main()} uses \texttt{density\_parameterization=log\_density}.
-In this mode the network outputs an unconstrained scalar $s_\theta(x)\in\mathbb{R}$ and we interpret
+Three practical ways of enforcing non-negativity are considered:
+\begin{itemize}
+    \item \textbf{ReLU output:} $\hat p(x)=\max(0,z(x))$.
+    \item \textbf{Scaled sigmoid:} $\hat p(x)=A\,\sigma(z(x))$ with $A>0$.
+    \item \textbf{Log-parameterized mode:} the network outputs an unconstrained scalar $s_\theta(x)\in\mathbb{R}$
+    interpreted as a log-density score.
+\end{itemize}
+In log-density mode, define
 \begin{equation}
     \hat p_\theta(x) = \exp(s_\theta(x)).
 \end{equation}
-Training becomes a standard regression on log-targets, i.e. we replace $y_i$ with
-$\log(y_i+\varepsilon)$ and minimize an MSE on log-values. This removes the need to impose non-negativity
-by an output-layer constraint (ReLU / scaled-sigmoid), because $\exp(\cdot)$ is always non-negative.
-The code still supports the direct-density parameterization, where the output layer is constrained to
-be non-negative.
+Training becomes regression on log-targets:
+\begin{equation}
+    \min_\theta\ \frac{1}{n}\sum_{i=1}^{n}\big(s_\theta(x_i)-\log(y_i+\varepsilon)\big)^2
+    \equiv
+    \min_\theta\ \frac{1}{n}\sum_{i=1}^{n}\big(\log \hat p_\theta(x_i)-\log(y_i+\varepsilon)\big)^2.
+    \label{eq:log-density-loss}
+\end{equation}
+This transformation compresses the dynamic range of density values and turns multiplicative errors in
+density space into additive errors in log-space, which is typically more numerically stable.
+
+For the scaled-sigmoid output, the scale $A$ is chosen to match the typical magnitude of the Parzen
+targets. A simple and effective heuristic is to set
+\begin{equation}
+    A = c\,\max_i y_i,\qquad c>1,
+\end{equation}
+so that the network is not artificially prevented from exceeding the maximum observed target during
+approximation. In the reported experiments, $c=1.5$ is used as a conservative ``headroom'' factor.
 
 The targets $y_i$ are constructed with a leave-one-out Parzen estimator, which avoids the self-kernel
 contribution and yields an (asymptotically) unbiased estimate at sample locations:
@@ -209,34 +200,31 @@ contribution and yields an (asymptotically) unbiased estimate at sample location
 Since targets are available only at the sample locations, the behavior between and outside samples is
 determined by the inductive bias of the network architecture.
 
-\subsection{Normalization on finite domain}
+\subsection{Normalization over a Finite Domain}
 A PNN does not enforce normalization:
 \begin{equation}
     \int_{\mathbb{R}^d}\hat p(x)\,dx \neq 1 \quad \text{in general}.
 \end{equation}
-Therefore $\hat p$ is interpreted as an unnormalized density estimate. When a proper pdf is required in
-our implementation, we normalize on the fixed evaluation rectangle $D\subset\mathbb{R}^2$ (the
-	exttt{Plotter} domain):
+Therefore $\hat p$ is interpreted as an unnormalized density estimate. When a proper pdf is required,
+normalization is performed on a fixed rectangle $D\subset\mathbb{R}^2$ discretized by a uniform grid
+$\mathcal{G}=\{u_m\}_{m=1}^{M_D}$. Let $\Delta A=\Delta x\,\Delta y$ be the elementary cell area. The
+normalizing constant is approximated by the Riemann sum
 \begin{equation}
-    Z=\int_D \hat p(x)\,dx, \qquad p_{\text{norm}}(x)=\frac{\hat p(x)}{Z}.
+    Z \approx \sum_{u_m\in\mathcal{G}} \hat p_\theta(u_m)\,\Delta A,
+    \qquad
+    \hat p_{\mathrm{norm}}(x) = \frac{\hat p_\theta(x)}{Z}.
+    \label{eq:riemann-normalization}
 \end{equation}
-Numerically, $Z$ is approximated by a Riemann sum on the same uniform grid used for visualization and
-evaluation.
-
-\paragraph{Limitation of normalization on a finite domain}
-The normalization on $D$ implicitly assumes that most probability mass lies inside the chosen rectangle.
-If the estimator assigns non-negligible mass outside $D$, then the normalized density on $D$ will be
-biased upward and likelihood-style metrics become sensitive to the choice of $D$. In practice we choose
-$D$ large enough to cover the mixtures, and we add optional regularization (boundary penalty) to
-discourage heavy tails and reduce mass near/outside the boundary.
+The accuracy of Eq.~\eqref{eq:riemann-normalization} depends on both grid resolution and the choice of
+domain $D$. If $D$ is too small, non-negligible probability mass may lie outside $D$, biasing the
+normalization and any likelihood-style metric computed on $D$.
 
 \section{Advanced Regularization Techniques}
-\subsection{PDF support and boundary penalty}
-\paragraph{Exploiting the support $X$ (practical and mathematical view)}
+\subsection{PDF Support and Boundary Penalty}
 Standard activations are non-local basis functions; therefore fitting $\hat p(x_i)\approx y_i$ does not
 imply $\hat p(x)\to 0$ away from the data and may generate heavy tails. To encourage compact support,
-boundary constraints can be introduced. In our code, $X$ is taken to be the same rectangle as the
-plot/evaluation domain $D$. Let $\xi$ be the diameter of $X$ and set $\delta=\alpha\xi$ with small
+boundary constraints can be introduced. Let $X\subset\mathbb{R}^d$ denote the chosen support rectangle
+(typically the same domain used for evaluation). Let $\xi$ be the diameter of $X$ and set $\delta=\alpha\xi$ with small
 $\alpha\in(0,1)$. Define
 \begin{equation}
     B_\delta=\{x\in\mathbb{R}^d\mid \mathrm{dist}(x,X)<\delta\}, \qquad
@@ -244,217 +232,200 @@ $\alpha\in(0,1)$. Define
 \end{equation}
 with $\mathrm{dist}(x,X)=\inf_{y\in X}\|x-y\|$. Sample $\tilde x_j\sim\mathrm{Unif}(\overline{B}_\delta)$ and
 add zero-density labels $S_\delta=\{(\tilde x_j,0)\}$. Training on $S\cup S_\delta$ can be interpreted as
-minimizing
+minimizing the empirical regularized objective
 \begin{equation}
     \min_\theta\ \frac{1}{n}\sum_{i=1}^n(\hat p_\theta(x_i)-y_i)^2
-    +\lambda\frac{1}{k}\sum_{j=1}^k \hat p_\theta(\tilde x_j)^2,
+    +\lambda\,\frac{1}{k}\sum_{j=1}^k \hat p_\theta(\tilde x_j)^2,
 \end{equation}
 which penalizes probability mass near the boundary of $X$, stabilizes numerical normalization, and
 mitigates spurious heavy tails.
 
-\subsection{Uniform internal supervision}
-\paragraph{Uniform interior supervision (\texttt{num\_uniform\_points} in the code)}
-The implementation optionally augments the training set with additional points sampled uniformly inside
-the evaluation domain $D$. For each uniform point $u_j\sim\mathrm{Unif}(D)$ we compute a Parzen/KDE target
-using the same kernel (with bandwidth $h_n$) and we add the pairs $\{(u_j, \hat p_{\mathrm{KDE}}(u_j))\}$ to
-the regression dataset. This stabilizes training by providing supervision away from the sample
-locations, while still using only sample-derived targets.
+\subsection{Internal Uniform Supervision}
+The training set may be augmented with additional points sampled uniformly inside
+the evaluation domain $D$. For each uniform point $u_j\sim\mathrm{Unif}(D)$ a Parzen/KDE target is computed
+using the same kernel (with bandwidth $h_n$) and the pairs $\{(u_j, \hat p_{\mathrm{KDE}}(u_j))\}$ are added to
+the regression dataset. This provides supervision away from sample locations and reduces extrapolation
+artifacts when training only on pointwise leave-one-out targets.
 
 \section{Experimental Setup and Model Selection}
-\paragraph{Abstract}
-The goal of the experiment is to compare Parzen Window (PW) estimation and Parzen Neural Network (PNN)
-estimation on synthetic two-dimensional densities with known ground truth. For each selected Gaussian
-mixture $p(x)$, datasets of increasing cardinality $n$ are sampled, each estimator is trained/tuned on
-the sampled data, and its estimate is evaluated against the true density on a common evaluation domain.
-The comparison is performed while varying (i) the sample size and (ii) the main hyperparameters
-controlling smoothness and model capacity (PW bandwidth; PNN kernel parameterization and
-hyperparameters).
-
-\subsection{Dynamic variables}
-	extbf{Dynamic variables and grids.} The experimental factors are discretized into finite sets to
-enable controlled sweeps:
+\subsection{Dynamic Variables}
+The experiments are organized as controlled sweeps over:
 \begin{itemize}
-    \item \emph{Sample size.} A set of cardinalities $n\in\mathcal{N}$ is used to probe the bias--variance
-    trade-off and convergence behavior as data increases. In the implementation, the Parzen Window sweep
-    varies approximately from 50 to 200 samples per Gaussian component.
-    \item \emph{PW bandwidth.} A set $h_1\in\mathcal{H}$ spanning small to large smoothing is used.
-    \item \emph{PNN hyperparameters.} We sweep the neural network \emph{architecture} (1 or 2 sigmoid
-    hidden layers and the output nonlinearity: ReLU or scaled sigmoid) \emph{and} the \textbf{learning
-    rate} used by Adam. In the code, representative bandwidth values $h_1\in\{2,7,12,16\}$ are used for
-    PNN training, and learning-rate sweeps are performed over a predefined grid.
+    \item \textbf{Sample size $n$:} approximately 50 to 200 samples per Gaussian component.
+    \item \textbf{PW bandwidth:} a grid of $h_1$ values spanning under- to over-smoothing.
+    \item \textbf{PNN optimization:} learning-rate sweeps for Adam over a predefined grid; representative
+    bandwidth values $h_1\in\{2,7,12,16\}$ are used for PNN training runs.
 \end{itemize}
 
-\subsection{Candidate architectures}
-\paragraph{Chosen PNN architectures}
-We compare four prompt-compliant MLP configurations (sigmoid hidden layers; ReLU or scaled-sigmoid
-output):
+\subsection{Candidate Architectures}
+MLPs with sigmoid hidden activations and non-negative outputs (ReLU or scaled sigmoid) are tested. The
+architectures used in the sweeps include the following hidden-layer widths:
 \begin{itemize}
-    \item \textbf{[20] + output scaled-sigmoid ($A$ auto)}
-    \item \textbf{[30,20] + output scaled-sigmoid ($A$ auto)}
-    \item \textbf{[30,20] + output ReLU}
-    \item \textbf{[20] + output ReLU}
+    \item \textbf{[20]} and \textbf{[30,20]} with \textbf{output ReLU}.
+    \item \textbf{[20]} and \textbf{[30,20]} with \textbf{output scaled-sigmoid} (with $A$ chosen
+    automatically in the implementation).
 \end{itemize}
-This set probes how density-estimation accuracy depends on representation capacity (depth/width) and the
-non-negativity constraint at the output, while keeping the training objective fixed (regression on
-Parzen targets).
+This isolates the effect of capacity (width/depth) and output parameterization while keeping the target
+generation mechanism fixed (leave-one-out Parzen targets).
 
-\subsection{Validation criteria}
-\paragraph{Model selection criteria (how architectures are chosen)}
-The code performs a grid sweep and reports performance curves. From a model-selection standpoint, we
-adopt the standard non-parametric principle of choosing the \emph{simplest} architecture that achieves
-near-best validation performance. In a realistic setting where the ground-truth density is unknown,
-this can be done by splitting the sample set into train/validation subsets and maximizing a validation
-criterion such as the (average) log-likelihood on held-out points. More principled viewpoints discussed
-in the literature include cross-validation based likelihood and the Minimum Description Length (MDL)
-principle.
+From a modelling standpoint, increasing depth (e.g., moving from one to two hidden layers) can improve
+representation of anisotropy and multimodality within a compact domain (pro), but may increase
+overfitting risk and exacerbate spurious ``heavy tails'' outside high-density regions if not properly
+regularized (con).
 
-Concretely, we use the validation negative log-likelihood (NLL) computed on held-out points
-$\{x_j\}_{j=1}^{m}$:
+\subsection{Validation Criteria}
+To select hyperparameters without using the ground truth, a held-out validation set
+$\{x_j\}_{j=1}^{m}$ and compute the \textbf{validation negative log-likelihood (NLL)}:
 \begin{equation}
     \mathrm{NLL}(\hat p;\{x_j\}_{j=1}^{m}) = -\frac{1}{m}\sum_{j=1}^{m}\log\big(\hat p(x_j)+\varepsilon\big).
 \end{equation}
-For PW/KDE, $\hat p$ is already normalized. For the PNN, we normalize the non-negative surface on the
-finite domain $D$ (Section 3.3) before computing validation likelihood.
+For PW/KDE, $\hat p$ is already normalized. For PNNs, normalization is performed on the finite domain $D$
+(Section 3.3) before computing the NLL. This aligns with the principle of selecting the simplest model
+that performs well on held-out data (an MDL-style viewpoint).
 
-\subsection{Setup steps}
-\subsubsection{Static design choices}
-	extbf{Static design choices.} The ground-truth densities are fixed mixtures of Gaussians in
-$\mathbb{R}^2$. For a mixture with $M$ components, the density is
+\section{Results Analysis and Discussion}
+\subsection{Quantitative Performance}
+Performance is evaluated on a fixed grid over a rectangle $D\subset\mathbb{R}^2$ that covers the target
+mixtures. Accuracy is summarized via the $L_2$ error over the grid (a Riemann approximation of the
+$L_2(D)$ norm):
 \begin{equation}
-    p(x) = \sum_{m=1}^{M} \pi_m\,\mathcal{N}(x;\mu_m,\Sigma_m),
-    \qquad \pi_m\ge 0,\ \sum_{m=1}^{M}\pi_m = 1,
+    \|\hat p - p\|_{L^2(D)}^2 \approx \sum_{u_m\in\mathcal{G}}\big(\hat p(u_m)-p(u_m)\big)^2\,\Delta A.
 \end{equation}
-with means $\mu_m\in\mathbb{R}^2$ and positive semidefinite covariances
-$\Sigma_m\in\mathbb{R}^{2\times 2}$. Using mixtures provides multimodal targets with controllable overlap
-and anisotropy.
+This allows direct comparison between PW and PNN as $n$ and $h_1$ vary.
 
-For PW estimation we use a Gaussian kernel density estimator (as implemented in
-	exttt{ParzenWindowEstimator}). In $d=2$ dimensions, with effective bandwidth $h_n>0$,
+Figure~\ref{fig:val-nll-sweeps} reports the data-only cross-validation criterion (validation NLL on held-out
+points) across bandwidths. Because PNNs are normalized on a finite domain $D$ (Section 3.3), their NLL
+depends on $D$; the comparison is still meaningful as long as the same $D$ is used consistently.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.32\linewidth]{figures/validation_nll_bandwidth_sweep_mixture1.jpeg}
+\includegraphics[width=0.32\linewidth]{figures/validation_nll_bandwidth_sweep_mixture2.jpeg}
+\includegraphics[width=0.32\linewidth]{figures/validation_nll_bandwidth_sweep_mixture3.jpeg}
+\caption{Validation NLL (data-only cross-validation) as a function of bandwidth $h_1$ for the three target
+mixtures. Lower is better.}
+\label{fig:val-nll-sweeps}
+\end{figure}
+
+For additional context (not usable for model selection), Table~\ref{tab:oracle-best-mse} summarizes the best
+oracle grid MSE achieved among the saved training logs, where the MSE is computed against the known
+mixture ground truth on the evaluation grid.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{l l r r}
+\hline
+Mixture & Best PNN configuration (logged) & $h_1$ & best grid MSE\\
+\hline
+1 & MLP [30,20], out ReLU (log-density training) & 2.0 & 2.68\,$\times 10^{-5}$\\
+2 & MLP [30,20], out scaled-sigmoid (A=auto, log-density training) & 7.0 & 1.48\,$\times 10^{-5}$\\
+3 & MLP [30,20], out ReLU (log-density training) & 12.0 & 8.84\,$\times 10^{-6}$\\
+\hline
+\end{tabular}
+\caption{Best oracle grid MSE observed in the saved training logs for each mixture. These values use
+ground truth and are included only for analysis and sanity-checking, not for selecting hyperparameters.}
+\label{tab:oracle-best-mse}
+\end{table}
+
+\subsection{Qualitative Analysis (Overlays)}
+In addition to scalar metrics, 3D surface plots are inspected comparing (i) the true mixture density and
+(ii) the estimated density. Overlay visualizations help diagnose oversmoothing (large bandwidth),
+spurious bumps (small bandwidth), and missing/merged modes.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.32\linewidth]{figures/overlays_h1_12p00_mixture1.jpeg}
+\includegraphics[width=0.32\linewidth]{figures/overlays_h1_12p00_mixture2.jpeg}
+\includegraphics[width=0.32\linewidth]{figures/overlays_h1_12p00_mixture3.jpeg}
+\caption{Overlay comparison (KDE vs true and PNN vs true) for a representative bandwidth ($h_1=12$),
+showing the effect of architecture and output parameterization across mixtures.}
+\label{fig:overlays-h1-12}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.32\linewidth]{figures/learning_results_bandwidth_sweep_mixture1.jpeg}
+\includegraphics[width=0.32\linewidth]{figures/learning_results_bandwidth_sweep_mixture2.jpeg}
+\includegraphics[width=0.32\linewidth]{figures/learning_results_bandwidth_sweep_mixture3.jpeg}
+\caption{PNN learning behavior across bandwidths: training curves (top) and final oracle grid MSE vs $h_1$
+(bottom), compared to KDE.}
+\label{fig:learning-sweeps}
+\end{figure}
+
+\subsection{Complexity Analysis}
+Let $T$ be the number of query points where the density is evaluated. Parzen Window / KDE requires
+evaluating $n$ kernels per query point, giving inference complexity $\mathcal{O}(nT)$. A PNN has a
+potentially expensive training phase (including leave-one-out target generation), but after training the
+test-time cost does not scale with $n$: evaluating a fixed network on $T$ points is $\mathcal{O}(WT)$,
+where $W$ is the number of network parameters (often summarized as linear in $T$ for fixed architecture).
+
+The main training-time cost specific to PNNs is the construction of leave-one-out targets: for each of
+the $n$ samples, $n-1$ kernel evaluations are required, yielding
 \begin{equation}
-    \hat{p}_{\mathrm{PW},h_n}(x)
-    = \frac{1}{n}\sum_{i=1}^{n}\mathcal{N}(x;x_i,h_n^2 I_2)
-    = \frac{1}{n\,(2\pi h_n^2)}\sum_{i=1}^{n}\exp\!\left(-\frac{\|x-x_i\|^2}{2h_n^2}\right).
+    	ext{target generation cost} = \mathcal{O}(n^2).
 \end{equation}
-In the implementation, $h_n$ is computed from a user-chosen $h_1$ via $h_n=\tfrac{h_1}{\sqrt{n-1}}$.
-
-\paragraph{Why Gaussian kernels (non-parametric justification)}
-The estimators are \emph{non-parametric}: they do not assume the data comes from a Gaussian mixture.
-We use Gaussian kernels primarily for their smoothness (continuous, differentiable estimates), stable
-optimization behavior, and the fact that Gaussian kernels yield universal, flexible kernel expansions.
-In other words, the kernel is chosen for numerical and approximation properties rather than to
-``match'' the true distribution family.
-
-For PNN estimation, the implementation in \texttt{estimator.py} follows Algorithm~\ref{alg:train-pnn}:
-an MLP is trained by \emph{regression} on leave-one-out Parzen targets computed from the samples.
-Concretely, for each training sample $x_i$ we compute a target $y_i$ using a Gaussian kernel with
-effective bandwidth $h_n=\tfrac{h_1}{\sqrt{n-1}}$ and $V_n=h_n^d$, and we train the network to match these
-targets (typically with an MSE-type loss).
-
-\paragraph{Output parameterization and normalization used for evaluation}
-The MLP uses sigmoid hidden activations (1 or 2 hidden layers). At the output we enforce non-negativity
-either with ReLU or with a scaled sigmoid $A\,\sigma(z)$. In addition, the code supports a
-\emph{log-density} parameterization, where the network outputs an unnormalized log-score and
-exponentiation is applied when constructing the density. For plotting and evaluation on a fixed grid
-$D$, the resulting non-negative surface is normalized by a Riemann-sum approximation of
-$Z=\int_D \hat p_\theta(u)\,du$ so that the plotted density integrates (approximately) to 1 over $D$.
-
-	extbf{2) Training/estimating the density.}
-\begin{itemize}
-    \item \emph{PW:} for each $h\in\mathcal{H}$, compute $\hat{p}_{\mathrm{PW},h}$ from the sample set.
-    \item \emph{PNN (regression on Parzen targets):} compute leave-one-out Parzen targets
-    $S=\{(x_i,y_i)\}_{i=1}^n$ using a Gaussian kernel with effective bandwidth $h_n$ (Eq.~\eqref{eq:hn-def}),
-    then train the MLP by minimizing an MSE-type loss between the network output and $y_i$.
-\end{itemize}
-
-\subsubsection{Loss function and optimization}
-Let $f_\theta$ be the PNN network and let $y_i$ be the leave-one-out Parzen target associated with $x_i$.
-The core training objective is regression:
+Training the network for $E$ epochs with $W$ parameters incurs an additional cost
+$\mathcal{O}(n E W)$, so the total training complexity can be summarized as
 \begin{equation}
-    \mathcal{L}_{\mathrm{PNN}}(\theta)=\frac{1}{n}\sum_{i=1}^{n}\big(f_\theta(x_i)-y_i\big)^2,
+    \mathcal{O}(n^2 + n E W).
 \end{equation}
-or, in log-density mode, an MSE on log-targets. Optimization is performed with Adam, a first-order
-stochastic gradient method that updates parameters by combining gradients $\nabla_\theta\mathcal{L}$ with
-exponential moving averages of first and second moments (adaptive step sizes per parameter). In our
-script the updates are performed for a fixed number of epochs; each epoch corresponds to one full pass
-over the sampled training points. We sweep learning rates across a predefined grid and record the
-training loss curve (regression loss on Parzen targets) as well as an evaluation MSE against the
-ground-truth density on a fixed evaluation grid.
 
-\subsubsection{Common evaluation protocol}
-	extbf{3) Common evaluation protocol.} Let $D\subset\mathbb{R}^2$ be a fixed evaluation domain (a
-rectangle covering the mixtures) and let $\{u_m\}_{m=1}^{M_D}$ be a uniform grid on $D$. The pointwise
-error is measured against the true density $p$ on the same grid:
-\begin{equation}
-    \mathrm{MSE} = \frac{1}{M_D}\sum_{m=1}^{M_D}\big(\hat{p}(u_m)-p(u_m)\big)^2,
-    \qquad \mathrm{RMSE}=\sqrt{\mathrm{MSE}}.
-\end{equation}
-Analogous definitions are used for MAE and maximum absolute error. This yields, for each mixture and
-each configuration of $(n,h)$ or $(n,\text{architecture})$, a comparable scalar performance measure.
+To support the asymptotic analysis with empirical evidence, Table~\ref{tab:runtime} reports measured
+wall-clock runtimes on this machine for a single evaluation of $T=10^4$ query points.
 
-\paragraph{Learnable parameters}
-All PNN parameters are the neural network weights/biases in $f_\theta$. The shape of $f_\theta$
-(hidden-layer widths and activation) is the architectural choice that we sweep in the experiments,
-together with the \emph{learning rate} used by Adam.
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrr}
+\hline
+Method & $n$ & $T$ & time (s)\\
+\hline
+PW (Gaussian KDE) & 2000 & $10^4$ & 0.923\\
+PNN forward (fixed $W$) & -- & $10^4$ & 7.66\,$\times 10^{-4}$\\
+\hline
+\end{tabular}
+\caption{Measured inference time for PW vs PNN on $T=10^4$ points (single run).}
+\label{tab:runtime}
+\end{table}
 
-\paragraph{How can we match a ground truth with different covariances?}
-Although the ground truth is a Gaussian mixture with possibly anisotropic covariances, an MLP-defined
-density on $D$ is a flexible function class: with sufficient hidden units it can approximate multi-modal
-and anisotropic shapes (within $D$) by learning an appropriate log-density landscape.
+\subsection{Effect of Boundary Penalty}
+When boundary regularization (Section 4.1) is enabled, the model is discouraged from placing probability
+mass near/outside the domain boundary. This reduces heavy tails, stabilizes finite-domain normalization,
+and can improve validation NLL when an unregularized model assigns excessive mass to low-density regions.
+The effect is assessed jointly via shape changes in overlay plots and validation NLL curves.
 
-\paragraph{Is this still a Parzen Neural Network?}
-Yes in the broad sense: a PNN is a neural model trained to produce a density estimate derived from
-Parzen/KDE-style targets. When centers are fixed at samples and covariances are fixed, the kernel
-expansion reduces to a Parzen estimator; learning the kernel parameters distills the Parzen estimate
-into a compact, trainable representation.
-
-\paragraph{Relation to the report objective}
-	extbf{4) Relation to the report objective.} Repeating the above steps across mixtures and
-hyperparameter grids produces the empirical comparison required in the abstract goal: benchmark PW and
-PNN on known 2D densities while varying the number of extracted samples, the network architecture, and
-the key hyperparameters controlling smoothness and capacity.
-
-\section{Analysis of Results and Discussion}
-\subsection{Quantitative performance}
-Quantitative evaluation is performed on a common evaluation grid over a fixed rectangle
-$D\subset\mathbb{R}^2$. For each mixture and each configuration of hyperparameters, we compute standard
-pointwise error metrics against the ground-truth density on that grid, including MSE/RMSE (and
-optionally MAE and maximum absolute error).
-
-In the implementation, the Parzen Window sweep produces an error-surface figure and an overlay figure
-per mixture (e.g.\ \texttt{figures/Parzen\_errors\_mixture*.jpeg} and
-	exttt{figures/Parzen\_overlay\_mixture*.jpeg}).
-
-\subsection{Qualitative analysis (overlays)}
-In addition to scalar errors, we inspect 3D surface plots of (i) the true mixture density and (ii) the
-estimated density. Overlays are useful to diagnose qualitative behaviors that a single metric may hide,
-such as oversmoothing (excessive bias for large bandwidth), spurious bumps (variance for too-small
-bandwidth), and missing/merged modes.
-
-\subsection{Complexity analysis}
-Let $T$ be the number of query points at which we evaluate a density estimate. \emph{Parzen Window / KDE}
-requires storing all $n$ samples and evaluating $n$ kernels per query point, so inference is
-$\mathcal{O}(nT)$. For a \emph{PNN}, generating the leave-one-out targets costs $\mathcal{O}(n^2)$ in the
-naive implementation (pairwise kernel evaluations), and training adds the usual cost of backpropagation
-over a network with $W$ parameters. However, once trained, inference does \emph{not} scale with $n$:
-evaluating the network on $T$ query points is $\mathcal{O}(WT)$ (up to constant factors from matrix
-multiplications). This is the main practical advantage of PNNs: they can compress the sample-based
-estimator into a fixed-size model.
-
-\subsection{Effect of the boundary penalty}
-When boundary regularization is enabled (Section 4.1), the estimator is explicitly discouraged from
-assigning mass near/outside the domain boundary. This can reduce spurious heavy tails, stabilize
-finite-domain normalization, and improve validation NLL when the unregularized model places too much
-probability mass in low-density regions. The effect is best interpreted jointly via (i) the shape
-changes in overlay plots and (ii) the validation NLL curves.
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.32\linewidth]{figures/boundary_penalty_comparison_mixture1.jpeg}
+\includegraphics[width=0.32\linewidth]{figures/boundary_penalty_comparison_mixture2.jpeg}
+\includegraphics[width=0.32\linewidth]{figures/boundary_penalty_comparison_mixture3.jpeg}
+\caption{Boundary penalty comparison for each mixture, using the configuration selected by validation NLL.
+For each mixture: KDE vs true (left), PNN with $\lambda=0$ (middle), PNN with $\lambda=10^{-2}$ (right).}
+\label{fig:boundary-penalty-compare}
+\end{figure}
 
 \section{Conclusions}
 The experiments compare a memory-based non-parametric estimator (PW/KDE) and a learned surrogate (PNN)
-trained on Parzen-derived targets. PW/KDE provides a direct kernel estimator whose inference cost scales
-linearly with the sample count. PNNs can approximate the Parzen estimator on the chosen domain $D$ while
-offering inference whose cost does not grow with $n$ after training.
+trained on Parzen-derived targets. The PNN can be viewed as a \emph{compressed} model that, with enough
+capacity, can approximate complex multi-modal densities on a chosen compact domain.
 
-Overall, the PNN can be interpreted as a ``compressed'' density model whose accuracy depends on the
-bandwidth choice, the network capacity, and regularization (boundary penalty and optional uniform
-supervision), while PW remains the simplest and most direct baseline.
+This viewpoint is supported by the Universal Approximation Theorem: for a compact set $X\subset\mathbb{R}^d$
+and any continuous target function $f\in C(X)$, a single-hidden-layer MLP with sigmoid activations can
+approximate $f$ uniformly to arbitrary precision. In particular, for any $\varepsilon>0$ there exists a
+network $f_\theta$ such that
+\begin{equation}
+    \sup_{x\in X}\,|f_\theta(x)-f(x)| < \varepsilon.
+\end{equation}
+Therefore, on a compact evaluation domain $D$, sufficiently wide sigmoid MLPs provide a principled function
+class for approximating smooth density surfaces (after enforcing non-negativity and normalization).
+
+Compared to PW/KDE, PNNs shift computation from test time to training time: once trained, inference is
+efficient and does not grow with the number of samples. Overall performance depends on bandwidth choice,
+architecture capacity, and regularization (boundary penalty and uniform supervision).
+
+\begin{thebibliography}{1}
+\bibitem{cybenko1989}
+G.~Cybenko, ``Approximation by superpositions of a sigmoidal function,'' \emph{Mathematics of Control,
+Signals and Systems}, vol.~2, no.~4, pp.~303--314, 1989.
+\end{thebibliography}
 
 \end{document}
