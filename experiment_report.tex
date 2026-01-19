@@ -93,7 +93,7 @@ For $d=2$ and an isotropic Gaussian kernel, Eq.~\eqref{eq:kde-general} becomes
 \subsection{Kernel Choice}
 The counting derivation above is typically introduced with a \emph{rectangular} (hard) window, which
 produces discontinuous estimates and visually blocky density surfaces on a grid. Here a
-    extbf{Gaussian kernel} is used to obtain smooth, infinitely differentiable ($C^\infty$) density estimates.
+\textbf{Gaussian kernel} is used to obtain smooth, infinitely differentiable ($C^\infty$) density estimates.
 Compared to a rectangular kernel, Gaussian KDE avoids discontinuities at window boundaries and yields
 better numerical behavior when gradients are involved (e.g., when KDE targets are distilled into a neural
 surrogate). Importantly, the choice of kernel is a numerical/modelling choice and does \emph{not} assume
@@ -183,6 +183,12 @@ Training becomes regression on log-targets:
 This transformation compresses the dynamic range of density values and turns multiplicative errors in
 density space into additive errors in log-space, which is typically more numerically stable.
 
+In particular, if an estimator has a multiplicative deviation $\hat p(x)=p(x)\,(1+\delta(x))$ with small
+$|\delta(x)|$, then $\log \hat p(x)-\log p(x)\approx \delta(x)$, i.e., relative errors in density are mapped
+to approximately additive residuals in log space. This is the main motivation for the default
+    \texttt{log\_density} training mode: it simultaneously guarantees non-negativity via exponentiation and
+improves numerical stability during optimization.
+
 For the scaled-sigmoid output, the scale $A$ is chosen to match the typical magnitude of the Parzen
 targets. A simple and effective heuristic is to set
 \begin{equation}
@@ -253,9 +259,19 @@ The experiments are organized as controlled sweeps over:
 \begin{itemize}
     \item \textbf{Sample size $n$:} approximately 50 to 200 samples per Gaussian component.
     \item \textbf{PW bandwidth:} a grid of $h_1$ values spanning under- to over-smoothing.
-    \item \textbf{PNN optimization:} learning-rate sweeps for Adam over a predefined grid; representative
-    bandwidth values $h_1\in\{2,7,12,16\}$ are used for PNN training runs.
+    \item \textbf{PNN optimization:} Adam optimizer with learning-rate grid $\{5\times 10^{-3}\}$ (a singleton
+    grid in the current experiments), trained for 3500 epochs per run, using full-batch updates.
+    Unless otherwise stated, Adam hyperparameters use PyTorch defaults ($\beta_1=0.9$, $\beta_2=0.999$,
+    $\varepsilon=10^{-8}$) and zero weight decay. Representative bandwidth values $h_1\in\{2,7,12,16\}$ are
+    used for PNN training runs.
 \end{itemize}
+
+All density visualizations and grid-based metrics are computed on the fixed rectangular domain
+$D=[-5,5]\times[-5,5]$ discretized by a uniform $100\times 100$ grid. The resulting grid spacing is
+$\Delta x=\Delta y\approx 10/99\approx 0.101$. This resolution is sufficient for the reported mixtures at
+the chosen bandwidths, but it is important to note that extremely narrow (low-variance) Gaussian
+components would require a finer grid to capture steep gradients accurately in the Riemann-sum
+normalization (Eq.~\eqref{eq:riemann-normalization}) and in grid-based $L_2$ error.
 
 \subsection{Candidate Architectures}
 MLPs with sigmoid hidden activations and non-negative outputs (ReLU or scaled sigmoid) are tested. The
@@ -281,7 +297,10 @@ $\{x_j\}_{j=1}^{m}$ and compute the \textbf{validation negative log-likelihood (
 \end{equation}
 For PW/KDE, $\hat p$ is already normalized. For PNNs, normalization is performed on the finite domain $D$
 (Section 3.3) before computing the NLL. This aligns with the principle of selecting the simplest model
-that performs well on held-out data (an MDL-style viewpoint).
+that performs well on held-out data (an MDL-style viewpoint). Concretely, if two architectures achieve
+similar validation NLL, the model with fewer parameters is preferred to reduce model complexity.
+For the architectures considered here, an MLP with one hidden layer of width 20 has 81 parameters,
+whereas the two-hidden-layer MLP with widths [30,20] has 731 parameters.
 
 \section{Results Analysis and Discussion}
 \subsection{Quantitative Performance}
@@ -293,18 +312,33 @@ $L_2(D)$ norm):
 \end{equation}
 This allows direct comparison between PW and PNN as $n$ and $h_1$ vary.
 
-Figure~\ref{fig:val-nll-sweeps} reports the data-only cross-validation criterion (validation NLL on held-out
-points) across bandwidths. Because PNNs are normalized on a finite domain $D$ (Section 3.3), their NLL
-depends on $D$; the comparison is still meaningful as long as the same $D$ is used consistently.
+Figures~\ref{fig:val-nll-sweep-m1}--\ref{fig:val-nll-sweep-m3} report the data-only cross-validation
+criterion (validation NLL on held-out points) across bandwidths. Because PNNs are normalized on a finite
+domain $D$ (Section 3.3), their NLL depends on $D$; the comparison is still meaningful as long as the
+same $D$ is used consistently.
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=0.32\linewidth]{figures/validation_nll_bandwidth_sweep_mixture1.jpeg}
-\includegraphics[width=0.32\linewidth]{figures/validation_nll_bandwidth_sweep_mixture2.jpeg}
-\includegraphics[width=0.32\linewidth]{figures/validation_nll_bandwidth_sweep_mixture3.jpeg}
-\caption{Validation NLL (data-only cross-validation) as a function of bandwidth $h_1$ for the three target
-mixtures. Lower is better.}
-\label{fig:val-nll-sweeps}
+\includegraphics[width=0.75\linewidth]{figures/validation_nll_bandwidth_sweep_mixture1.jpeg}
+\caption{Validation NLL (data-only cross-validation) as a function of bandwidth $h_1$ for Mixture 1.
+Lower is better.}
+\label{fig:val-nll-sweep-m1}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.75\linewidth]{figures/validation_nll_bandwidth_sweep_mixture2.jpeg}
+\caption{Validation NLL (data-only cross-validation) as a function of bandwidth $h_1$ for Mixture 2.
+Lower is better.}
+\label{fig:val-nll-sweep-m2}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.75\linewidth]{figures/validation_nll_bandwidth_sweep_mixture3.jpeg}
+\caption{Validation NLL (data-only cross-validation) as a function of bandwidth $h_1$ for Mixture 3.
+Lower is better.}
+\label{fig:val-nll-sweep-m3}
 \end{figure}
 
 For additional context (not usable for model selection), Table~\ref{tab:oracle-best-mse} summarizes the best
@@ -327,6 +361,17 @@ ground truth and are included only for analysis and sanity-checking, not for sel
 \label{tab:oracle-best-mse}
 \end{table}
 
+\paragraph{Output activation behavior.}
+The best-performing output parameterization differs across mixtures (Table~\ref{tab:oracle-best-mse}):
+Mixture~2 achieves its best oracle grid MSE with a scaled-sigmoid output, while Mixture~3 achieves its
+best with a ReLU output. A plausible explanation is related to peak sharpness and dynamic range.
+The scaled-sigmoid output has an effective ``headroom'' determined by the scale $A=c\max_i y_i$ (with
+$c=1.5$ in these experiments), which can constrain the maximum representable unnormalized density.
+This can be beneficial when the target is moderately smooth (preventing excessive spikes), but may
+limit approximation of very sharp/high peaks. Conversely, ReLU is unbounded and can represent taller
+peaks when narrow components induce high local curvature, at the cost of requiring stronger
+regularization to avoid spurious heavy tails.
+
 \subsection{Qualitative Analysis (Overlays)}
 In addition to scalar metrics, 3D surface plots are inspected comparing (i) the true mixture density and
 (ii) the estimated density. Overlay visualizations help diagnose oversmoothing (large bandwidth),
@@ -334,22 +379,47 @@ spurious bumps (small bandwidth), and missing/merged modes.
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=0.32\linewidth]{figures/overlays_h1_12p00_mixture1.jpeg}
-\includegraphics[width=0.32\linewidth]{figures/overlays_h1_12p00_mixture2.jpeg}
-\includegraphics[width=0.32\linewidth]{figures/overlays_h1_12p00_mixture3.jpeg}
-\caption{Overlay comparison (KDE vs true and PNN vs true) for a representative bandwidth ($h_1=12$),
-showing the effect of architecture and output parameterization across mixtures.}
-\label{fig:overlays-h1-12}
+\includegraphics[width=0.75\linewidth]{figures/overlays_h1_12p00_mixture1.jpeg}
+\caption{Overlay comparison (KDE vs true and PNN vs true) for Mixture 1 at bandwidth $h_1=12$.}
+\label{fig:overlays-h1-12-m1}
 \end{figure}
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=0.32\linewidth]{figures/learning_results_bandwidth_sweep_mixture1.jpeg}
-\includegraphics[width=0.32\linewidth]{figures/learning_results_bandwidth_sweep_mixture2.jpeg}
-\includegraphics[width=0.32\linewidth]{figures/learning_results_bandwidth_sweep_mixture3.jpeg}
-\caption{PNN learning behavior across bandwidths: training curves (top) and final oracle grid MSE vs $h_1$
-(bottom), compared to KDE.}
-\label{fig:learning-sweeps}
+\includegraphics[width=0.75\linewidth]{figures/overlays_h1_12p00_mixture2.jpeg}
+\caption{Overlay comparison (KDE vs true and PNN vs true) for Mixture 2 at bandwidth $h_1=12$.}
+\label{fig:overlays-h1-12-m2}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.75\linewidth]{figures/overlays_h1_12p00_mixture3.jpeg}
+\caption{Overlay comparison (KDE vs true and PNN vs true) for Mixture 3 at bandwidth $h_1=12$.}
+\label{fig:overlays-h1-12-m3}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.75\linewidth]{figures/learning_results_bandwidth_sweep_mixture1.jpeg}
+\caption{PNN learning behavior across bandwidths for Mixture 1: training curves (top) and final oracle
+grid MSE vs $h_1$ (bottom), compared to KDE.}
+\label{fig:learning-sweeps-m1}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.75\linewidth]{figures/learning_results_bandwidth_sweep_mixture2.jpeg}
+\caption{PNN learning behavior across bandwidths for Mixture 2: training curves (top) and final oracle
+grid MSE vs $h_1$ (bottom), compared to KDE.}
+\label{fig:learning-sweeps-m2}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.75\linewidth]{figures/learning_results_bandwidth_sweep_mixture3.jpeg}
+\caption{PNN learning behavior across bandwidths for Mixture 3: training curves (top) and final oracle
+grid MSE vs $h_1$ (bottom), compared to KDE.}
+\label{fig:learning-sweeps-m3}
 \end{figure}
 
 \subsection{Complexity Analysis}
@@ -369,6 +439,17 @@ $\mathcal{O}(n E W)$, so the total training complexity can be summarized as
 \begin{equation}
     \mathcal{O}(n^2 + n E W).
 \end{equation}
+
+Figure~\ref{fig:loocv-complexity} empirically confirms the quadratic scaling of leave-one-out target
+generation time with $n$.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.65\linewidth]{figures/training_complexity_loocv.jpeg}
+\caption{Empirical runtime of leave-one-out (LOO) target generation as a function of sample size $n$.
+The measured curve is consistent with $\mathcal{O}(n^2)$ growth.}
+\label{fig:loocv-complexity}
+\end{figure}
 
 To support the asymptotic analysis with empirical evidence, Table~\ref{tab:runtime} reports measured
 wall-clock runtimes on this machine for a single evaluation of $T=10^4$ query points.
@@ -393,14 +474,48 @@ mass near/outside the domain boundary. This reduces heavy tails, stabilizes fini
 and can improve validation NLL when an unregularized model assigns excessive mass to low-density regions.
 The effect is assessed jointly via shape changes in overlay plots and validation NLL curves.
 
+In addition to the qualitative plots, Table~\ref{tab:boundary-nll} reports validation NLL with and without
+boundary penalty for the same configuration (selected by validation NLL) in each mixture. A decrease in
+NLL indicates improved generalization on held-out data under finite-domain normalization.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{l r r r}
+\hline
+Mixture & Val NLL ($\lambda=0$) & Val NLL ($\lambda=10^{-2}$) & $\Delta$ NLL\\
+\hline
+1 & 3.4765 & 3.4886 & +0.0121\\
+2 & 3.3656 & 3.3852 & +0.0196\\
+3 & 4.0509 & 4.0632 & +0.0123\\
+\hline
+\end{tabular}
+\caption{Validation NLL with/without boundary penalty on the same domain $D$. Lower is better.
+$\Delta$NLL denotes (with penalty) minus (without penalty).}
+\label{tab:boundary-nll}
+\end{table}
+
 \begin{figure}[h]
 \centering
-\includegraphics[width=0.32\linewidth]{figures/boundary_penalty_comparison_mixture1.jpeg}
-\includegraphics[width=0.32\linewidth]{figures/boundary_penalty_comparison_mixture2.jpeg}
-\includegraphics[width=0.32\linewidth]{figures/boundary_penalty_comparison_mixture3.jpeg}
-\caption{Boundary penalty comparison for each mixture, using the configuration selected by validation NLL.
-For each mixture: KDE vs true (left), PNN with $\lambda=0$ (middle), PNN with $\lambda=10^{-2}$ (right).}
-\label{fig:boundary-penalty-compare}
+\includegraphics[width=0.75\linewidth]{figures/boundary_penalty_comparison_mixture1.jpeg}
+\caption{Boundary penalty comparison for Mixture 1, using the configuration selected by validation NLL.
+KDE vs true (left), PNN with $\lambda=0$ (middle), PNN with $\lambda=10^{-2}$ (right).}
+\label{fig:boundary-penalty-compare-m1}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.75\linewidth]{figures/boundary_penalty_comparison_mixture2.jpeg}
+\caption{Boundary penalty comparison for Mixture 2, using the configuration selected by validation NLL.
+KDE vs true (left), PNN with $\lambda=0$ (middle), PNN with $\lambda=10^{-2}$ (right).}
+\label{fig:boundary-penalty-compare-m2}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.75\linewidth]{figures/boundary_penalty_comparison_mixture3.jpeg}
+\caption{Boundary penalty comparison for Mixture 3, using the configuration selected by validation NLL.
+KDE vs true (left), PNN with $\lambda=0$ (middle), PNN with $\lambda=10^{-2}$ (right).}
+\label{fig:boundary-penalty-compare-m3}
 \end{figure}
 
 \section{Conclusions}
@@ -417,6 +532,14 @@ network $f_\theta$ such that
 \end{equation}
 Therefore, on a compact evaluation domain $D$, sufficiently wide sigmoid MLPs provide a principled function
 class for approximating smooth density surfaces (after enforcing non-negativity and normalization).
+
+The theoretical justification relies on approximating continuous functions on compact domains. In this
+setting the target density $p$ is a Gaussian mixture, hence smooth ($C^\infty$) and strictly positive.
+Moreover, the Parzen/KDE targets used to train the PNN are themselves smooth mixtures of Gaussians (a
+finite sum of Gaussian kernels centered at samples), which makes the regression target particularly
+well-suited to approximation by smooth MLPs. After enforcing non-negativity (e.g., via log-density
+parameterization) and applying finite-domain normalization, the learned surrogate can be interpreted as
+an approximate pdf on $D$.
 
 Compared to PW/KDE, PNNs shift computation from test time to training time: once trained, inference is
 efficient and does not grow with the number of samples. Overall performance depends on bandwidth choice,

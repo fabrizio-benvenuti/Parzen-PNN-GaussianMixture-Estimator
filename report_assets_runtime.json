@@ -1,0 +1,16 @@
+{
+  "runtimes": [
+    {
+      "method": "PW (Gaussian KDE)",
+      "n": 2000,
+      "T": 10000,
+      "seconds": 0.9229729469952872
+    },
+    {
+      "method": "PNN forward (fixed W)",
+      "n": null,
+      "T": 10000,
+      "seconds": 0.000766452998504974
+    }
+  ]
+}

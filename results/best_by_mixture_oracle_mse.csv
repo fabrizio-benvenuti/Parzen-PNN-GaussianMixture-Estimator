@@ -1,0 +1,4 @@
+mixture,file,label,h1_file,best_epoch,best_eval_mse,h1,h_n,lr,loss
+1,mixture1_MLP_30-20_sigmoid_outReLU_h1_2p00.txt,MLP_30-20_sigmoid_outReLU,2.0,2000,2.683317e-05,2.0,0.201008,0.005,mse
+2,mixture2_MLP_30-20_sigmoid_outSigmoid_Aauto_h1_7p00.txt,MLP_30-20_sigmoid_outSigmoid_Aauto,7.0,2800,1.479939e-05,7.0,0.452792,0.005,mse
+3,mixture3_MLP_30-20_sigmoid_outReLU_h1_12p00.txt,MLP_30-20_sigmoid_outReLU,12.0,3400,8.836556e-06,12.0,0.600751,0.005,mse

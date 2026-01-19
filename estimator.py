@@ -6,10 +6,87 @@ import torch.nn as nn
 import torch.optim as optim
 import os
 import copy
+import json
+import sys
+import time
 
 # Ensure directories exist
 os.makedirs("figures", exist_ok=True)
 os.makedirs("logs", exist_ok=True)
+os.makedirs("results", exist_ok=True)
+
+
+def benchmark_loocv_target_generation(
+    *,
+    h1: float = 7.0,
+    n_values: list[int] | None = None,
+    repeats: int = 3,
+    seed: int = 0,
+) -> tuple[str, str]:
+    """Empirically benchmark leave-one-out KDE target generation cost vs n.
+
+    This isolates the O(n^2) step of constructing Parzen targets (pairwise kernel evaluation).
+
+    Outputs:
+      - results/training_complexity_loocv.csv
+      - figures/training_complexity_loocv.jpeg
+    """
+    if n_values is None:
+        n_values = [200, 400, 800, 1200, 1600, 2000]
+    repeats = int(repeats)
+    if repeats < 1:
+        repeats = 1
+
+    rng = np.random.default_rng(int(seed))
+    rows: list[dict[str, float]] = []
+
+    for n in n_values:
+        n = int(n)
+        # Generate a synthetic point cloud roughly centered in the domain.
+        pts = rng.normal(loc=0.0, scale=1.0, size=(n, 2)).astype(float)
+        times: list[float] = []
+        for _ in range(repeats):
+            t0 = time.perf_counter()
+            _ = compute_leave_one_out_kde_targets(pts, float(h1))
+            t1 = time.perf_counter()
+            times.append(float(t1 - t0))
+        mean_t = float(np.mean(times))
+        std_t = float(np.std(times))
+        rows.append({"n": float(n), "seconds_mean": mean_t, "seconds_std": std_t})
+        print(f"LOO target generation: n={n:5d}  mean={mean_t:.4f}s  std={std_t:.4f}s")
+
+    # Save CSV
+    csv_path = os.path.join("results", "training_complexity_loocv.csv")
+    with open(csv_path, "w", encoding="utf-8") as f:
+        f.write("n,seconds_mean,seconds_std\n")
+        for r in rows:
+            f.write(f"{int(r['n'])},{r['seconds_mean']:.8f},{r['seconds_std']:.8f}\n")
+
+    # Plot time vs n and fitted quadratic reference
+    n_arr = np.array([r["n"] for r in rows], dtype=float)
+    t_arr = np.array([r["seconds_mean"] for r in rows], dtype=float)
+    # Fit c in t ≈ c n^2 by least squares (through origin)
+    denom = float(np.sum((n_arr**2) ** 2))
+    c_hat = float(np.sum(t_arr * (n_arr**2)) / denom) if denom > 0 else 0.0
+    t_ref = c_hat * (n_arr**2)
+
+    fig = plt.figure(figsize=(10, 6))
+    ax = fig.add_subplot(111)
+    ax.plot(n_arr, t_arr, marker="o", label="Measured (mean)")
+    ax.plot(n_arr, t_ref, linestyle="--", label=r"Fit: $c\,n^2$")
+    ax.set_title("Empirical complexity: leave-one-out KDE target generation")
+    ax.set_xlabel("n (number of samples)")
+    ax.set_ylabel("time (s)")
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    fig_path = os.path.join("figures", "training_complexity_loocv.jpeg")
+    plt.tight_layout()
+    plt.savefig(fig_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved complexity CSV: {csv_path}")
+    print(f"Saved complexity figure: {fig_path}")
+
+    return csv_path, fig_path
 
 
 def _dx_dy_from_plotter(plotter) -> tuple[float, float]:
@@ -438,7 +515,13 @@ class ParzenNeuralNetwork(nn.Module):
         if self.density_parameterization == "log_density" and loss_mode != "mse":
             raise ValueError("In log_density mode, set loss_mode='mse' (MSE on log-targets)")
 
-        optimizer = optim.Adam(self.parameters(), lr=float(learning_rate), weight_decay=float(weight_decay))
+        optimizer = optim.Adam(
+            self.parameters(),
+            lr=float(learning_rate),
+            betas=(0.9, 0.999),
+            eps=1e-8,
+            weight_decay=float(weight_decay),
+        )
 
         boundary_tensor = None
         if boundary_points is not None and len(boundary_points) > 0:
@@ -911,6 +994,8 @@ def main():
             # Safe for filenames
             return f"{float(h):.2f}".replace(".", "p")
 
+        arch_labels_all = [arch_label(cfg) for cfg in pnn_architectures]
+
         # Collect results across bandwidths so we can make one learning-results figure per mixture.
         n_arch_total = len(pnn_architectures)
         per_arch_eval_mse_by_h: list[list[list[float]]] = [[] for _ in range(n_arch_total)]
@@ -1014,6 +1099,19 @@ def main():
                     f"Mixture {mixture_idx+1}, h1={bandwidth:.3f}, {label}: "
                     f"ValAvgLogLik={ll_pnn_val:.6e} (ValAvgNLL={nll_pnn_val:.6e})"
                 )
+
+                # Append a compact, machine-parseable summary line to the same log file.
+                try:
+                    with open(log_filename, "a", encoding="utf-8") as log_file:
+                        log_file.write(
+                            "SUMMARY: "
+                            f"h1={float(bandwidth):.6g}, "
+                            f"label={label}, "
+                            f"final_grid_mse={float(per_arch_final_mse[-1]):.6e}, "
+                            f"val_avg_nll={float(nll_pnn_val):.6e}\n"
+                        )
+                except OSError:
+                    pass
 
                 # Persist results across bandwidths for consolidated learning plot
                 per_arch_eval_mse_by_h[cfg_idx].append(best_hist)
@@ -1320,6 +1418,62 @@ def main():
             plt.close(fig_b)
             print(f"Saved boundary-penalty comparison figure: {b_filename}")
 
+            # Export a JSON summary for the whole sweep (report-ready, machine-readable).
+            try:
+                sweep_payload = {
+                    "mixture": int(mixture_idx + 1),
+                    "bandwidths_h1": [float(h) for h in bandwidths],
+                    "learning_rates": [float(lr) for lr in learning_rates],
+                    "architectures": [
+                        {
+                            "label": arch_labels_all[i],
+                            "hidden_layers": list(pnn_architectures[i]["hidden_layers"]),
+                            "hidden_activation": "sigmoid",
+                            "output": str(pnn_architectures[i]["out"]),
+                            "output_scale": pnn_architectures[i].get("A", "auto"),
+                            "density_parameterization": "log_density" if use_log_density else "density",
+                        }
+                        for i in range(len(pnn_architectures))
+                    ],
+                    "kde": {
+                        "grid_mse": [float(v) for v in kde_mse_by_h],
+                        "val_avg_nll": [float(v) for v in kde_val_nll_by_h],
+                        "val_avg_loglik": [float(v) for v in kde_val_ll_by_h],
+                    },
+                    "pnn": {
+                        "final_grid_mse": [[float(v) for v in per_arch_final_mse_by_h[i]] for i in range(n_arch_total)],
+                        "val_avg_nll": [[float(v) for v in per_arch_val_nll_by_h[i]] for i in range(n_arch_total)],
+                        "val_avg_loglik": [[float(v) for v in per_arch_val_ll_by_h[i]] for i in range(n_arch_total)],
+                    },
+                    "best_by_val_nll": {
+                        "label": arch_label(pnn_architectures[int(best_cfg_idx)]),
+                        "h1": float(best_h1),
+                        "val_avg_nll": float(best_nll),
+                    },
+                    "boundary_penalty_demo": {
+                        "h1": float(best_h1),
+                        "label": label,
+                        "lambda_0": {"lambda": float(lam0), **metrics[float(lam0)]},
+                        "lambda_1": {"lambda": float(lam1), **metrics[float(lam1)]},
+                    },
+                }
+                out_path = f"results/sweep_results_mixture{mixture_idx+1}.json"
+                with open(out_path, "w", encoding="utf-8") as f:
+                    json.dump(sweep_payload, f, indent=2)
+                print(f"Saved sweep results JSON: {out_path}")
+            except OSError:
+                pass
+
 
 if __name__ == "__main__":
+    # Lightweight CLI flags (kept minimal to avoid adding dependencies).
+    #   --benchmark-complexity-only : only run the O(n^2) target-generation benchmark
+    #   --benchmark-complexity      : run the benchmark after the full experiment sweep
+    if "--benchmark-complexity-only" in sys.argv:
+        benchmark_loocv_target_generation()
+        raise SystemExit(0)
+
     main()
+
+    if "--benchmark-complexity" in sys.argv:
+        benchmark_loocv_target_generation()
