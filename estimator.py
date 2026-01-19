@@ -18,7 +18,7 @@ def _dx_dy_from_plotter(plotter) -> tuple[float, float]:
     return dx, dy
 
 
-def  _effective_bandwidth(base_bandwidth: float, sample_count: int) -> float:
+def _effective_bandwidth(base_bandwidth: float, sample_count: int) -> float:
     """Scale base bandwidth h_1 into h_n per Parzen rule h_1/sqrt(n-1)."""
     if not np.isfinite(base_bandwidth) or base_bandwidth <= 0:
         raise ValueError("Bandwidth h_1 must be finite and > 0")
@@ -26,6 +26,125 @@ def  _effective_bandwidth(base_bandwidth: float, sample_count: int) -> float:
     if n <= 1:
         return float(base_bandwidth)
     return float(base_bandwidth) / float(np.sqrt(n - 1))
+
+
+def split_train_validation(
+    points_xy: np.ndarray,
+    *,
+    val_fraction: float = 0.2,
+    seed: int | None = 0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Split 2D points into train/validation subsets.
+
+    This is used to evaluate estimators without access to ground truth, via
+    validation log-likelihood on held-out points.
+    """
+    pts = np.asarray(points_xy, dtype=float)
+    if pts.ndim != 2 or pts.shape[1] != 2:
+        raise ValueError("points_xy must have shape (n, 2)")
+    n = int(pts.shape[0])
+    if n < 2:
+        raise ValueError("Need at least 2 points to split")
+    frac = float(val_fraction)
+    if not np.isfinite(frac) or not (0.0 < frac < 1.0):
+        raise ValueError("val_fraction must be in (0, 1)")
+    n_val = max(1, int(np.floor(frac * n)))
+    n_train = n - n_val
+    if n_train < 1:
+        n_train = 1
+        n_val = n - 1
+
+    rng = np.random.default_rng(seed)
+    idx = np.arange(n)
+    rng.shuffle(idx)
+    val_idx = idx[:n_val]
+    train_idx = idx[n_val:]
+    return pts[train_idx], pts[val_idx]
+
+
+def average_log_likelihood_kde(
+    points_eval_xy: np.ndarray,
+    points_train_xy: np.ndarray,
+    h1: float,
+    *,
+    eps: float = 1e-300,
+) -> float:
+    """Average log-likelihood under a Gaussian KDE fitted on points_train_xy."""
+    dens = compute_kde(points_eval_xy, points_train_xy, h1)
+    dens = np.maximum(dens, float(eps))
+    return float(np.mean(np.log(dens)))
+
+
+def average_log_likelihood_pnn_on_domain(
+    pnn: "ParzenNeuralNetwork",
+    points_eval_xy: np.ndarray,
+    plotter,
+    *,
+    eps: float = 1e-12,
+) -> float:
+    """Average log-likelihood using the PNN normalized on the Plotter domain D.
+
+    Note: the PNN is normalized by a Riemann-sum approximation on the finite
+    rectangle D, therefore this likelihood is an approximation and depends on D.
+    """
+    X = np.asarray(points_eval_xy, dtype=float)
+    if X.ndim != 2 or X.shape[1] != 2:
+        raise ValueError("points_eval_xy must have shape (m, 2)")
+
+    # Compute normalizer on the grid (same as estimate_pdf, but without returning the full grid).
+    grid_points = np.c_[plotter.X.ravel(), plotter.Y.ravel()]
+    grid_tensor = torch.tensor(grid_points, dtype=torch.float32)
+    dx, dy = _dx_dy_from_plotter(plotter)
+    with torch.no_grad():
+        raw_grid = pnn.forward(grid_tensor).cpu().numpy()
+        if pnn.density_parameterization == "log_density":
+            unnorm_grid = np.exp(raw_grid)
+        else:
+            unnorm_grid = raw_grid
+    Z = float(np.sum(unnorm_grid) * (dx * dy))
+    Z = max(Z, float(eps))
+
+    # Evaluate unnormalized density at held-out points.
+    eval_tensor = torch.tensor(X, dtype=torch.float32)
+    with torch.no_grad():
+        raw_eval = pnn.forward(eval_tensor).cpu().numpy()
+        if pnn.density_parameterization == "log_density":
+            unnorm_eval = np.exp(raw_eval)
+        else:
+            unnorm_eval = raw_eval
+    pdf_eval = np.maximum(unnorm_eval / Z, float(eps))
+    return float(np.mean(np.log(pdf_eval)))
+
+
+def mean_unnormalized_density_on_points(
+    pnn: "ParzenNeuralNetwork",
+    points_xy: np.ndarray,
+    *,
+    clamp_log_max: float = 10.0,
+) -> float:
+    """Mean of the PNN unnormalized density on a set of points.
+
+    Useful as a simple diagnostic for heavy tails (e.g., on boundary/shell points).
+    """
+    X = np.asarray(points_xy, dtype=float)
+    if X.ndim != 2 or X.shape[1] != 2:
+        raise ValueError("points_xy must have shape (m, 2)")
+    xt = torch.tensor(X, dtype=torch.float32)
+    with torch.no_grad():
+        raw = pnn.forward(xt)
+        if pnn.density_parameterization == "log_density":
+            raw = torch.clamp(raw, max=float(clamp_log_max))
+            dens = torch.exp(raw)
+        else:
+            dens = raw
+    return float(torch.mean(dens).cpu().item())
+
+
+def _nll_from_avg_loglik(avg_loglik: float) -> float:
+    """Convert average log-likelihood to (positive) average negative log-likelihood."""
+    if not np.isfinite(avg_loglik):
+        return float("inf")
+    return float(-avg_loglik)
 
 
 def _bottom_20_bounds(values: np.ndarray) -> tuple[float, float] | None:
@@ -778,10 +897,15 @@ def main():
         learning_rates = [5e-3]
         bandwidths = [2, 7, 12, 16]
         use_log_density = True
-        # Prepare training samples (~100 per Gaussian, scaled by weight)
+        # Prepare samples (~100 per Gaussian, scaled by weight)
         samples_xy = mixture.sample_points_weighted(100, with_pdf=False)
+        # Split train/validation so we can evaluate without ground truth (data-only metric).
+        train_xy, val_xy = split_train_validation(samples_xy, val_fraction=0.2, seed=mixture_idx + 1)
         # Optional boundary points set (shell outside plot rectangle)
-        boundary_pts = sample_boundary_points_outside_plot(plotter, alpha=0.1, k=max(20, int(0.3 * len(samples_xy))))
+        boundary_pts = sample_boundary_points_outside_plot(plotter, alpha=0.1, k=max(20, int(0.3 * len(train_xy))))
+
+        # We will generate an explicit figure that compares lambda_boundary=0 vs >0 at the end
+        # of the sweep, selecting the configuration that is best by validation NLL.
 
         def _h_tag(h: float) -> str:
             # Safe for filenames
@@ -793,13 +917,29 @@ def main():
         per_arch_final_mse_by_h: list[list[float]] = [[] for _ in range(n_arch_total)]
         kde_mse_by_h: list[float] = []
 
+        # Data-only metrics (validation average log-likelihood / NLL).
+        kde_val_ll_by_h: list[float] = []
+        kde_val_nll_by_h: list[float] = []
+        per_arch_val_ll_by_h: list[list[float]] = [[] for _ in range(n_arch_total)]
+        per_arch_val_nll_by_h: list[list[float]] = [[] for _ in range(n_arch_total)]
+
         for bandwidth in bandwidths:
             # Precompute KDE on grid once per bandwidth (same across architectures).
-            kde_estimator = ParzenWindowEstimator(samples_xy, window_size=float(bandwidth))
+            kde_estimator = ParzenWindowEstimator(train_xy, window_size=float(bandwidth))
             estimated_pdf_kde = kde_estimator.estimate_pdf(plotter)
             real_pdf = mixture.get_mesh(plotter.pos)
             mse_kde = float(np.mean((estimated_pdf_kde - real_pdf) ** 2))
             kde_mse_by_h.append(mse_kde)
+
+            # Data-only validation metric (no oracle): average log-likelihood of held-out points.
+            ll_kde_val = average_log_likelihood_kde(val_xy, train_xy, float(bandwidth))
+            nll_kde_val = _nll_from_avg_loglik(ll_kde_val)
+            kde_val_ll_by_h.append(ll_kde_val)
+            kde_val_nll_by_h.append(nll_kde_val)
+            print(
+                f"Mixture {mixture_idx+1}, h1={bandwidth:.3f}: "
+                f"KDE EvalMSE={mse_kde:.6e}, ValAvgLogLik={ll_kde_val:.6e} (ValAvgNLL={nll_kde_val:.6e})"
+            )
 
             # Track per-architecture results for this bandwidth
             arch_labels: list[str] = []
@@ -826,7 +966,7 @@ def main():
                             density_parameterization="log_density" if use_log_density else "density",
                         )
                         _final_loss, mse_hist, train_hist = pnn.train_network(
-                            samples_xy,
+                            train_xy,
                             plotter,
                             bandwidth=float(bandwidth),
                             mixture=mixture,
@@ -838,7 +978,7 @@ def main():
                             verbose=True,
                             loss_mode="mse" if use_log_density else "relative",
                             weight_decay=0.0,
-                            num_uniform_points=len(samples_xy) if use_log_density else 0,
+                            num_uniform_points=len(train_xy) if use_log_density else 0,
                         )
 
                     # Prefer using the final tracked eval MSE when available.
@@ -864,6 +1004,16 @@ def main():
                 per_arch_eval_mse_hist.append(best_hist)
                 per_arch_train_loss_hist.append(best_train_hist)
                 per_arch_final_mse.append(float(np.mean((est_pdf - real_pdf) ** 2)))
+
+                # Data-only validation log-likelihood for this trained PNN.
+                ll_pnn_val = average_log_likelihood_pnn_on_domain(best_model, val_xy, plotter)
+                nll_pnn_val = _nll_from_avg_loglik(ll_pnn_val)
+                per_arch_val_ll_by_h[cfg_idx].append(ll_pnn_val)
+                per_arch_val_nll_by_h[cfg_idx].append(nll_pnn_val)
+                print(
+                    f"Mixture {mixture_idx+1}, h1={bandwidth:.3f}, {label}: "
+                    f"ValAvgLogLik={ll_pnn_val:.6e} (ValAvgNLL={nll_pnn_val:.6e})"
+                )
 
                 # Persist results across bandwidths for consolidated learning plot
                 per_arch_eval_mse_by_h[cfg_idx].append(best_hist)
@@ -1040,6 +1190,135 @@ def main():
         plt.savefig(lr_all_filename, dpi=300, bbox_inches='tight')
         plt.close(fig_lr_all)
         print(f"Saved consolidated learning results figure: {lr_all_filename}")
+
+        # --------------------------
+        # NEW: Data-only cross-validation plot (validation NLL) across bandwidths.
+        fig_cv = plt.figure(figsize=(12, 6))
+        ax_cv = fig_cv.add_subplot(111)
+        H = np.array([float(h) for h in bandwidths], dtype=float)
+        ax_cv.plot(H, np.asarray(kde_val_nll_by_h, dtype=float), marker='o', color='tab:gray', label='KDE Val NLL')
+        for cfg_idx, cfg in enumerate(pnn_architectures):
+            label = arch_label(cfg)
+            ax_cv.plot(
+                H,
+                np.asarray(per_arch_val_nll_by_h[cfg_idx], dtype=float),
+                marker='o',
+                linewidth=2.0,
+                label=f"PNN Val NLL: {label}",
+            )
+        ax_cv.set_title(f"Validation NLL (data-only CV) vs h_1 — mixture {mixture_idx+1}")
+        ax_cv.set_xlabel("h_1")
+        ax_cv.set_ylabel("Avg NLL on held-out points (lower is better)")
+        ax_cv.grid(True, alpha=0.3)
+        ax_cv.legend(fontsize='small')
+        cv_filename = f"figures/validation_nll_bandwidth_sweep_mixture{mixture_idx+1}.jpeg"
+        plt.tight_layout()
+        plt.savefig(cv_filename, dpi=300, bbox_inches='tight')
+        plt.close(fig_cv)
+        print(f"Saved validation NLL figure: {cv_filename}")
+
+        # --------------------------
+        # NEW: Boundary penalty comparison figure (lambda=0 vs lambda>0) for the best-by-NLL config.
+        # Select best (min) validation NLL across all (arch, bandwidth).
+        best_cfg_idx = None
+        best_h1 = None
+        best_nll = float("inf")
+        for cfg_idx in range(n_arch_total):
+            nlls = per_arch_val_nll_by_h[cfg_idx]
+            for i_h, nll in enumerate(nlls):
+                if np.isfinite(nll) and float(nll) < best_nll:
+                    best_nll = float(nll)
+                    best_cfg_idx = int(cfg_idx)
+                    best_h1 = float(bandwidths[i_h])
+
+        if best_cfg_idx is not None and best_h1 is not None:
+            cfg = pnn_architectures[best_cfg_idx]
+            label = arch_label(cfg)
+            lam0 = 0.0
+            lam1 = 1e-2
+            demo_epochs = 2000
+            demo_lr = float(learning_rates[0])
+            print(
+                f"Boundary penalty comparison (mixture {mixture_idx+1}): "
+                f"best-by-NLL: h1={best_h1:.3f}, arch={label}; training lambda={lam0} vs {lam1}"
+            )
+
+            models: dict[float, ParzenNeuralNetwork] = {}
+            metrics: dict[float, dict[str, float]] = {}
+            for lam in (lam0, lam1):
+                pnn_demo = ParzenNeuralNetwork(
+                    hidden_layers=cfg["hidden_layers"],
+                    output_activation=cfg["out"],
+                    output_scale=cfg.get("A", "auto"),
+                    density_parameterization="log_density" if use_log_density else "density",
+                )
+                _final_loss, _mse_hist, _train_hist = pnn_demo.train_network(
+                    train_xy,
+                    plotter,
+                    bandwidth=float(best_h1),
+                    mixture=mixture,
+                    log_file=None,
+                    learning_rate=demo_lr,
+                    epochs=demo_epochs,
+                    boundary_points=boundary_pts,
+                    lambda_boundary=float(lam),
+                    verbose=False,
+                    loss_mode="mse" if use_log_density else "relative",
+                    weight_decay=0.0,
+                    num_uniform_points=len(train_xy) if use_log_density else 0,
+                )
+                models[float(lam)] = pnn_demo
+
+                boundary_mean = mean_unnormalized_density_on_points(pnn_demo, boundary_pts)
+                val_ll = average_log_likelihood_pnn_on_domain(pnn_demo, val_xy, plotter)
+                val_nll = _nll_from_avg_loglik(val_ll)
+                metrics[float(lam)] = {
+                    "boundary_mean": float(boundary_mean),
+                    "val_ll": float(val_ll),
+                    "val_nll": float(val_nll),
+                }
+
+            # Plot: KDE vs True, and PNN lambda=0 vs True, PNN lambda>0 vs True.
+            kde_for_demo = ParzenWindowEstimator(train_xy, window_size=float(best_h1))
+            kde_pdf = kde_for_demo.estimate_pdf(plotter)
+            true_pdf = mixture.get_mesh(plotter.pos)
+            pnn0_pdf = models[lam0].estimate_pdf(plotter)
+            pnn1_pdf = models[lam1].estimate_pdf(plotter)
+
+            fig_b = plt.figure(figsize=(16, 9))
+            fig_b.suptitle(f"Boundary penalty comparison — mixture {mixture_idx+1}\n{label}, h_1={best_h1:.3f}")
+
+            ax_kde = fig_b.add_subplot(1, 3, 1, projection='3d')
+            ax_kde.plot_surface(plotter.X, plotter.Y, true_pdf, alpha=0.45, cmap='viridis')
+            ax_kde.plot_surface(plotter.X, plotter.Y, kde_pdf, alpha=0.45, cmap='cividis')
+            ax_kde.set_title("KDE vs True")
+
+            ax0 = fig_b.add_subplot(1, 3, 2, projection='3d')
+            ax0.plot_surface(plotter.X, plotter.Y, true_pdf, alpha=0.45, cmap='viridis')
+            ax0.plot_surface(plotter.X, plotter.Y, pnn0_pdf, alpha=0.45, cmap='plasma')
+            m0 = metrics[lam0]
+            ax0.set_title(
+                f"PNN vs True (lambda={lam0:g})\nValNLL={m0['val_nll']:.3g}, boundaryMean={m0['boundary_mean']:.3g}"
+            )
+
+            ax1 = fig_b.add_subplot(1, 3, 3, projection='3d')
+            ax1.plot_surface(plotter.X, plotter.Y, true_pdf, alpha=0.45, cmap='viridis')
+            ax1.plot_surface(plotter.X, plotter.Y, pnn1_pdf, alpha=0.45, cmap='plasma')
+            m1 = metrics[lam1]
+            ax1.set_title(
+                f"PNN vs True (lambda={lam1:g})\nValNLL={m1['val_nll']:.3g}, boundaryMean={m1['boundary_mean']:.3g}"
+            )
+
+            for ax in (ax_kde, ax0, ax1):
+                ax.set_xlabel("x")
+                ax.set_ylabel("y")
+                ax.set_zlabel("pdf")
+
+            b_filename = f"figures/boundary_penalty_comparison_mixture{mixture_idx+1}.jpeg"
+            plt.tight_layout()
+            plt.savefig(b_filename, dpi=300, bbox_inches='tight')
+            plt.close(fig_b)
+            print(f"Saved boundary-penalty comparison figure: {b_filename}")
 
 
 if __name__ == "__main__":
