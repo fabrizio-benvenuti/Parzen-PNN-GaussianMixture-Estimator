@@ -100,8 +100,9 @@ produces discontinuous estimates and visually blocky density surfaces on a grid.
 \textbf{Gaussian kernel} is used to obtain smooth, infinitely differentiable ($C^\infty$) density estimates.
 Compared to a rectangular kernel, Gaussian KDE avoids discontinuities at window boundaries and yields
 better numerical behavior when gradients are involved (e.g., when KDE targets are distilled into a neural
-surrogate). Importantly, the choice of kernel is a numerical/modelling choice and does \emph{not} assume
-any knowledge of the parametric family of the true density.
+surrogate). In particular, the Gaussian kernel is a \emph{numerical modelling choice}: it guarantees the
+$C^\infty$ differentiability class needed to keep gradients stable when distilling KDE targets into the PNN.
+Importantly, the choice of kernel does \emph{not} assume any knowledge of the parametric family of the true density.
 
 \subsection{Bandwidth Parameterization}
 A distinction is made between a user-chosen \emph{base} bandwidth $h_1$ and the \emph{effective} bandwidth $h_n$ used in
@@ -122,7 +123,9 @@ parametric family is $h_n = h_1 n^{-\alpha}$ with $0<\alpha<\tfrac{1}{d}$.
 The specific decay in Eq.~\eqref{eq:hn-def} corresponds to the borderline case $\alpha=\tfrac{1}{2}$ in
 $d=2$, for which $n h_n^2$ does \emph{not} diverge asymptotically. Therefore, the choice in
 Eq.~\eqref{eq:hn-def} is treated here as a \emph{finite-sample heuristic} that shrinks the bandwidth
-aggressively as more samples are available. This makes the bias--variance trade-off explicit: if $h_n$
+aggressively as more samples are available. In the strict Parzen sense, asymptotic consistency is
+\emph{not guaranteed} in $d=2$ because the condition $n h_n^d\to\infty$ (Eq.~\eqref{eq:kde-consistency}) is not met.
+This makes the bias--variance trade-off explicit: if $h_n$
 decreases too slowly the estimator remains biased (oversmoothing), while if it decreases too fast the
 estimate becomes noisy (undersmoothing) because too few samples contribute effectively to each kernel.
 In the experiments, sweeps are reported in terms of $h_1$, while kernel computations use $h_n$.
@@ -226,7 +229,8 @@ normalizing constant is approximated by the Riemann sum
     \label{eq:riemann-normalization}
 \end{equation}
 The accuracy of Eq.~\eqref{eq:riemann-normalization} depends on both grid resolution and the choice of
-domain $D$. If the estimator assigns non-negligible probability mass outside $D$, then the Riemann-sum
+domain $D$; in particular, the numerical normalizing constant $Z$ depends critically on the grid spacing.
+If the estimator assigns non-negligible probability mass outside $D$, then the Riemann-sum
 estimate of $Z$ underestimates the true integral over $\mathbb{R}^2$. The subsequent normalization
 therefore rescales the density upward \\emph{inside} $D$, which can make likelihood-style metrics computed
 on $D$ (such as validation NLL) sensitive to the arbitrary choice of domain boundaries.
@@ -276,8 +280,9 @@ All density visualizations and grid-based metrics are computed on the fixed rect
 $D=[-5,5]\times[-5,5]$ discretized by a uniform $100\times 100$ grid. The resulting grid spacing is
 $\Delta x=\Delta y\approx 10/99\approx 0.101$. This resolution is sufficient for the reported mixtures at
 the chosen bandwidths, but it is important to note that extremely narrow (low-variance) Gaussian
-components would require a finer grid to capture steep gradients accurately in the Riemann-sum
-normalization (Eq.~\eqref{eq:riemann-normalization}) and in grid-based $L_2$ error.
+components would require a finer grid to capture steep gradients accurately; otherwise the Riemann-sum
+normalization constant $Z$ (Eq.~\eqref{eq:riemann-normalization}) and grid-based $L_2$ error can be biased
+by under-resolving sharp peaks.
 
 \subsection{Candidate Architectures}
 MLPs with sigmoid hidden activations and non-negative outputs (ReLU or scaled sigmoid) are tested. The
@@ -306,7 +311,9 @@ log-likelihood (NLL)}:
 For PW/KDE, $\hat p$ is already normalized. For PNNs, normalization is performed on the finite domain $D$
 (Section 3.3) before computing the NLL. This aligns with the principle of selecting the simplest model
 that performs well on held-out data (an MDL-style viewpoint). Concretely, if two architectures achieve
-similar validation NLL, the model with fewer parameters is preferred to reduce model complexity.
+similar validation NLL, the model with fewer parameters is preferred to reduce model complexity. This is
+not only a computational saving, but also a safeguard against overfitting artifacts (e.g., spurious
+"heavy tails" under finite-domain normalization) in low-data regimes.
 For the architectures considered here, an MLP with one hidden layer of width 20 has 81 parameters,
 whereas the two-hidden-layer MLP with widths [30,20] has 731 parameters.
 
@@ -579,7 +586,8 @@ Three relationships in this section are corroborated by the saved artifacts:
     A log--log fit of target-generation runtime vs $n$ yields an exponent of approximately $1.87$, consistent
     with $\mathcal{O}(n^2)$ up to constants and cache effects. The sub-quadratic exponent at these sample
     sizes is plausibly explained by optimized vectorized kernels (NumPy/PyTorch) and memory/cache behavior,
-    which can mitigate the apparent scaling for medium $n$.
+    which can mitigate the apparent scaling for medium $n$ (i.e., modern vectorized implementations reduce
+    overhead and hide some of the quadratic cost until $n$ becomes large).
 
     \item \textbf{Parameter counts differ by an order of magnitude.}
     The MLP [20] has $W=81$ parameters, while the MLP [30,20] has $W=731$. Since PNN inference is
@@ -603,7 +611,9 @@ adding uniform supervision slightly improves held-out NLL (from $\approx 4.103$ 
 $\approx 4.088$ with uniform points) and reduces the mean predicted density near the boundary of $D$
 (boundary-ring mean $\approx 2.341\times 10^{-3}$ to $\approx 2.316\times 10^{-3}$).
 This supports the intended effect: \textbf{uniform supervision reduces far-field artifacts} by anchoring
-the model to Parzen targets not only at samples but also in empty regions of the domain.
+the model to Parzen targets not only at samples but also in empty regions of the domain. In practical
+terms, this is evidence that the PNN is not merely memorizing sample locations, but is learning the
+structure of the density field in regions with little or no data.
 
 \begin{figure}[H]
 \centering
@@ -632,7 +642,7 @@ The saved boundary-penalty artifact reveals three practically relevant phenomena
     For all three mixtures, Table~\ref{tab:boundary-nll} shows $\Delta$NLL $>0$ (about $+0.012$ to $+0.020$),
     indicating a small artificial bias: the penalty explicitly pushes the learned density toward zero near the
     boundary. This can conflict with the maximum-likelihood objective on the data, especially when samples lie
-    near the boundaries of $D$.
+    near the boundaries of $D$; therefore the observed NLL increase is expected under this selection criterion.
 
     \item \textbf{The penalty effect is larger when baseline boundary mass is larger.}
     In the saved demo, the baseline boundary mean is smallest in Mixture~1 ($\approx 8.6\times 10^{-3}$) and largest
@@ -702,7 +712,9 @@ Therefore, on a compact evaluation domain $D$, sufficiently wide sigmoid MLPs pr
 class for approximating smooth density surfaces (after enforcing non-negativity and normalization).
 
 The theoretical justification relies on approximating continuous functions on compact domains. In this
-setting the target density $p$ is a Gaussian mixture, hence smooth ($C^\infty$) and strictly positive.
+setting the target density $p$ is a Gaussian mixture: it is continuous (indeed $C^\infty$) and integrates to 1.
+Restricted to a compact evaluation domain, it falls in the class of non-pathological (``non-paltry'') functions
+covered by the theorem.
 Moreover, the Parzen/KDE targets used to train the PNN are themselves smooth mixtures of Gaussians (a
 finite sum of Gaussian kernels centered at samples), which makes the regression target particularly
 well-suited to approximation by smooth MLPs. After enforcing non-negativity (e.g., via log-density
@@ -716,7 +728,9 @@ architecture capacity, and regularization (boundary penalty and uniform supervis
 From an engineering standpoint, this suggests a clear computational trade-off: PW/KDE is the natural
 choice for rapid exploratory analysis and one-off estimation, while PNN is preferable in production or
 real-time inference scenarios where many density evaluations are required and the one-time training cost
-$\mathcal{O}(n^2 + n E W)$ can be amortized.
+$\mathcal{O}(n^2 + n E W)$ can be amortized. Relative to SVM/SVR-style kernel-machine approaches for density
+estimation, which typically have super-quadratic (and in the worst case cubic) training-time scaling in $n$,
+this cost profile provides a broader computational perspective.
 
 \paragraph{Summary of validated findings.}
 \begin{itemize}
