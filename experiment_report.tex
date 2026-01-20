@@ -1,10 +1,14 @@
 % filepath: /home/fabrizio-benvenuti/git/Parzen-PNN-GaussianMixture-Estimator/experiment_report.tex
 \documentclass{article}
 \usepackage{amsmath, amssymb}
+\usepackage[margin=0.8in]{geometry}
 \usepackage{graphicx}
 \usepackage[ruled,vlined]{algorithm2e}
 \RestyleAlgo{ruled}
 \usepackage{tabularx}
+\usepackage{float}
+\usepackage{placeins}
+\usepackage{parskip}
 
 \begin{document}
 
@@ -317,25 +321,48 @@ criterion (validation NLL on held-out points) across bandwidths. Because PNNs ar
 domain $D$ (Section 3.3), their NLL depends on $D$; the comparison is still meaningful as long as the
 same $D$ is used consistently.
 
-\begin{figure}[h]
+\subsubsection*{Findings}
+The following relationships between \emph{inputs} (bandwidth and architecture choices) and \emph{outputs}
+(validation NLL and oracle grid MSE) follow from standard bias--variance and approximation arguments, and
+are confirmed by the saved sweeps:
+\begin{itemize}
+    \item \textbf{Bias--variance in $h_1$ is visible in validation NLL.}
+    The best PNN validation NLL occurs at an \emph{intermediate} bandwidth in all mixtures
+    (Mixture~1: best at $h_1=7$ with NLL $\approx 3.466$; Mixture~2: best at $h_1=7$ with NLL $\approx 3.359$;
+    Mixture~3: best at $h_1=12$ with NLL $\approx 4.065$).
+    This matches the expectation that small $h_1$ produces high-variance/undersmoothed estimates (risking
+    near-zero density on validation points), while large $h_1$ increases bias (oversmoothing).
+
+    \item \textbf{Depth consistently improves best oracle grid MSE in the sweep.}
+    Across all three mixtures, the smallest oracle grid MSE observed among the saved runs is achieved by
+    the deeper architecture \textbf{[30,20]} (Table~\ref{tab:oracle-best-mse}), consistent with greater
+    representational flexibility on $D$.
+
+    \item \textbf{The best output constraint is mixture-dependent.}
+    Mixture~2 selects a \emph{scaled-sigmoid} output as best-by-validation (at $h_1=7$), while Mixture~3 selects a
+    \emph{ReLU} output (at $h_1=12$). Scaled-sigmoid introduces an implicit cap (via $A=c\max_i y_i$), which can
+    stabilize training for smoother targets, whereas ReLU remains unbounded and can represent sharper peaks.
+\end{itemize}
+
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.75\linewidth]{figures/validation_nll_bandwidth_sweep_mixture1.jpeg}
+\includegraphics[width=0.95\linewidth]{figures/validation_nll_bandwidth_sweep_mixture1.jpeg}
 \caption{Validation NLL (data-only cross-validation) as a function of bandwidth $h_1$ for Mixture 1.
 Lower is better.}
 \label{fig:val-nll-sweep-m1}
 \end{figure}
 
-\begin{figure}[h]
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.75\linewidth]{figures/validation_nll_bandwidth_sweep_mixture2.jpeg}
+\includegraphics[width=0.95\linewidth]{figures/validation_nll_bandwidth_sweep_mixture2.jpeg}
 \caption{Validation NLL (data-only cross-validation) as a function of bandwidth $h_1$ for Mixture 2.
 Lower is better.}
 \label{fig:val-nll-sweep-m2}
 \end{figure}
 
-\begin{figure}[h]
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.75\linewidth]{figures/validation_nll_bandwidth_sweep_mixture3.jpeg}
+\includegraphics[width=0.95\linewidth]{figures/validation_nll_bandwidth_sweep_mixture3.jpeg}
 \caption{Validation NLL (data-only cross-validation) as a function of bandwidth $h_1$ for Mixture 3.
 Lower is better.}
 \label{fig:val-nll-sweep-m3}
@@ -372,56 +399,77 @@ limit approximation of very sharp/high peaks. Conversely, ReLU is unbounded and 
 peaks when narrow components induce high local curvature, at the cost of requiring stronger
 regularization to avoid spurious heavy tails.
 
+\FloatBarrier
 \subsection{Qualitative Analysis (Overlays)}
 In addition to scalar metrics, 3D surface plots are inspected comparing (i) the true mixture density and
 (ii) the estimated density. Overlay visualizations help diagnose oversmoothing (large bandwidth),
 spurious bumps (small bandwidth), and missing/merged modes.
 
-\begin{figure}[h]
+\subsubsection*{Findings}
+The qualitative behavior in the overlays and learning curves is consistent with the following trends,
+quantified from the saved training logs and sweep summaries:
+\begin{itemize}
+    \item \textbf{Smaller bandwidth slows optimization on sharp targets.}
+    Define a convergence proxy as the number of epochs required to reach $90\%$ of the total EvalMSE
+    improvement from initialization to the best achieved value. The median convergence epoch is higher
+    for $h_1=2$ than for $h_1=16$ (approximately $1100$ vs $900$ epochs).
+
+    \item \textbf{Smaller bandwidth increases late-training instability.}
+    Using the standard deviation of EvalMSE over the last few logged checkpoints as a stability proxy,
+    the median tail standard deviation is about $1.29\times 10^{-5}$ for $h_1=2$ versus
+    $1.39\times 10^{-7}$ for $h_1=16$, indicating much noisier late-stage behavior at small bandwidth.
+
+    \item \textbf{KDE undersmoothing can produce likelihood ``holes'' in complex mixtures.}
+    With KDE at $h_1=2$, Mixture~3 attains a validation NLL of about $7.69$ while Mixture~1 attains about $4.21$
+    (a gap of $\approx 3.48$), consistent with near-zero estimated density between modes when kernels are too narrow.
+\end{itemize}
+
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.75\linewidth]{figures/overlays_h1_12p00_mixture1.jpeg}
+\includegraphics[width=0.95\linewidth]{figures/overlays_h1_12p00_mixture1.jpeg}
 \caption{Overlay comparison (KDE vs true and PNN vs true) for Mixture 1 at bandwidth $h_1=12$.}
 \label{fig:overlays-h1-12-m1}
 \end{figure}
 
-\begin{figure}[h]
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.75\linewidth]{figures/overlays_h1_12p00_mixture2.jpeg}
+\includegraphics[width=0.95\linewidth]{figures/overlays_h1_12p00_mixture2.jpeg}
 \caption{Overlay comparison (KDE vs true and PNN vs true) for Mixture 2 at bandwidth $h_1=12$.}
 \label{fig:overlays-h1-12-m2}
 \end{figure}
 
-\begin{figure}[h]
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.75\linewidth]{figures/overlays_h1_12p00_mixture3.jpeg}
+\includegraphics[width=0.95\linewidth]{figures/overlays_h1_12p00_mixture3.jpeg}
 \caption{Overlay comparison (KDE vs true and PNN vs true) for Mixture 3 at bandwidth $h_1=12$.}
 \label{fig:overlays-h1-12-m3}
 \end{figure}
 
-\begin{figure}[h]
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.75\linewidth]{figures/learning_results_bandwidth_sweep_mixture1.jpeg}
+\includegraphics[width=0.95\linewidth]{figures/learning_results_bandwidth_sweep_mixture1.jpeg}
 \caption{PNN learning behavior across bandwidths for Mixture 1: training curves (top) and final oracle
 grid MSE vs $h_1$ (bottom), compared to KDE.}
 \label{fig:learning-sweeps-m1}
 \end{figure}
 
-\begin{figure}[h]
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.75\linewidth]{figures/learning_results_bandwidth_sweep_mixture2.jpeg}
+\includegraphics[width=0.95\linewidth]{figures/learning_results_bandwidth_sweep_mixture2.jpeg}
 \caption{PNN learning behavior across bandwidths for Mixture 2: training curves (top) and final oracle
 grid MSE vs $h_1$ (bottom), compared to KDE.}
 \label{fig:learning-sweeps-m2}
 \end{figure}
 
-\begin{figure}[h]
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.75\linewidth]{figures/learning_results_bandwidth_sweep_mixture3.jpeg}
+\includegraphics[width=0.95\linewidth]{figures/learning_results_bandwidth_sweep_mixture3.jpeg}
 \caption{PNN learning behavior across bandwidths for Mixture 3: training curves (top) and final oracle
 grid MSE vs $h_1$ (bottom), compared to KDE.}
 \label{fig:learning-sweeps-m3}
 \end{figure}
 
+\FloatBarrier
 \subsection{Complexity Analysis}
 Let $T$ be the number of query points where the density is evaluated. Parzen Window / KDE requires
 evaluating $n$ kernels per query point, giving inference complexity $\mathcal{O}(nT)$. A PNN has a
@@ -432,7 +480,7 @@ where $W$ is the number of network parameters (often summarized as linear in $T$
 The main training-time cost specific to PNNs is the construction of leave-one-out targets: for each of
 the $n$ samples, $n-1$ kernel evaluations are required, yielding
 \begin{equation}
-    	ext{target generation cost} = \mathcal{O}(n^2).
+    \\text{target generation cost} = \\mathcal{O}(n^2).
 \end{equation}
 Training the network for $E$ epochs with $W$ parameters incurs an additional cost
 $\mathcal{O}(n E W)$, so the total training complexity can be summarized as
@@ -443,9 +491,9 @@ $\mathcal{O}(n E W)$, so the total training complexity can be summarized as
 Figure~\ref{fig:loocv-complexity} empirically confirms the quadratic scaling of leave-one-out target
 generation time with $n$.
 
-\begin{figure}[h]
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.65\linewidth]{figures/training_complexity_loocv.jpeg}
+\includegraphics[width=0.95\linewidth]{figures/training_complexity_loocv.jpeg}
 \caption{Empirical runtime of leave-one-out (LOO) target generation as a function of sample size $n$.
 The measured curve is consistent with $\mathcal{O}(n^2)$ growth.}
 \label{fig:loocv-complexity}
@@ -468,15 +516,49 @@ PNN forward (fixed $W$) & -- & $10^4$ & 7.66\,$\times 10^{-4}$\\
 \label{tab:runtime}
 \end{table}
 
+\subsubsection*{Findings}
+Three relationships in this section are corroborated by the saved artifacts:
+\begin{itemize}
+    \item \textbf{Empirical LOOCV scaling is close to quadratic.}
+    A log--log fit of target-generation runtime vs $n$ yields an exponent of approximately $1.87$, consistent
+    with $\mathcal{O}(n^2)$ up to constants and cache effects.
+
+    \item \textbf{Parameter counts differ by an order of magnitude.}
+    The MLP [20] has $W=81$ parameters, while the MLP [30,20] has $W=731$. Since PNN inference is
+    $\mathcal{O}(WT)$, this establishes an architecture-dependent scaling.
+
+    \item \textbf{Measured inference times show a large speed gap in favor of PNN.}
+    In Table~\ref{tab:runtime} (at $T=10^4$), the reported times imply a speedup of roughly
+    $0.923\,/\,(7.66\times 10^{-4})\approx 1.2\times 10^3$ in favor of PNN forward evaluation.
+\end{itemize}
+
+\FloatBarrier
 \subsection{Effect of Boundary Penalty}
 When boundary regularization (Section 4.1) is enabled, the model is discouraged from placing probability
 mass near/outside the domain boundary. This reduces heavy tails, stabilizes finite-domain normalization,
-and can improve validation NLL when an unregularized model assigns excessive mass to low-density regions.
+and \emph{may} improve validation NLL when an unregularized model assigns excessive mass to low-density regions.
 The effect is assessed jointly via shape changes in overlay plots and validation NLL curves.
 
 In addition to the qualitative plots, Table~\ref{tab:boundary-nll} reports validation NLL with and without
 boundary penalty for the same configuration (selected by validation NLL) in each mixture. A decrease in
 NLL indicates improved generalization on held-out data under finite-domain normalization.
+
+\subsubsection*{Findings}
+The saved boundary-penalty artifact reveals three practically relevant phenomena:
+\begin{itemize}
+    \item \textbf{Here the boundary penalty slightly worsens validation NLL.}
+    For all three mixtures, Table~\ref{tab:boundary-nll} shows $\Delta$NLL $>0$ (about $+0.012$ to $+0.020$),
+    indicating a small bias increase that is not compensated by improved generalization under the data-only NLL.
+
+    \item \textbf{The penalty effect is larger when baseline boundary mass is larger.}
+    In the saved demo, the baseline boundary mean is smallest in Mixture~1 ($\approx 8.6\times 10^{-3}$) and largest
+    in Mixture~3 ($\approx 2.8\times 10^{-2}$), and correspondingly the absolute boundary-mean change is negligible in
+    Mixture~1 but substantial in Mixture~3 (a decrease of about $3.9\times 10^{-3}$).
+
+    \item \textbf{Boundary mean is not guaranteed to decrease under finite-domain normalization.}
+    In Mixture~2, the boundary mean slightly increases when $\lambda$ is turned on, plausibly because the penalty
+    modifies the unnormalized shape and the subsequent finite-domain renormalization can rescale the whole function.
+\end{itemize}
 
 \begin{table}[h]
 \centering
@@ -494,29 +576,31 @@ $\Delta$NLL denotes (with penalty) minus (without penalty).}
 \label{tab:boundary-nll}
 \end{table}
 
-\begin{figure}[h]
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.75\linewidth]{figures/boundary_penalty_comparison_mixture1.jpeg}
+\includegraphics[width=0.95\linewidth]{figures/boundary_penalty_comparison_mixture1.jpeg}
 \caption{Boundary penalty comparison for Mixture 1, using the configuration selected by validation NLL.
 KDE vs true (left), PNN with $\lambda=0$ (middle), PNN with $\lambda=10^{-2}$ (right).}
 \label{fig:boundary-penalty-compare-m1}
 \end{figure}
 
-\begin{figure}[h]
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.75\linewidth]{figures/boundary_penalty_comparison_mixture2.jpeg}
+\includegraphics[width=0.95\linewidth]{figures/boundary_penalty_comparison_mixture2.jpeg}
 \caption{Boundary penalty comparison for Mixture 2, using the configuration selected by validation NLL.
 KDE vs true (left), PNN with $\lambda=0$ (middle), PNN with $\lambda=10^{-2}$ (right).}
 \label{fig:boundary-penalty-compare-m2}
 \end{figure}
 
-\begin{figure}[h]
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.75\linewidth]{figures/boundary_penalty_comparison_mixture3.jpeg}
+\includegraphics[width=0.95\linewidth]{figures/boundary_penalty_comparison_mixture3.jpeg}
 \caption{Boundary penalty comparison for Mixture 3, using the configuration selected by validation NLL.
 KDE vs true (left), PNN with $\lambda=0$ (middle), PNN with $\lambda=10^{-2}$ (right).}
 \label{fig:boundary-penalty-compare-m3}
 \end{figure}
+
+\FloatBarrier
 
 \section{Conclusions}
 The experiments compare a memory-based non-parametric estimator (PW/KDE) and a learned surrogate (PNN)
@@ -544,6 +628,24 @@ an approximate pdf on $D$.
 Compared to PW/KDE, PNNs shift computation from test time to training time: once trained, inference is
 efficient and does not grow with the number of samples. Overall performance depends on bandwidth choice,
 architecture capacity, and regularization (boundary penalty and uniform supervision).
+
+\paragraph{Summary of validated findings.}
+\begin{itemize}
+    \item \textbf{Bandwidth selection follows a bias--variance trade-off:} PNN validation NLL is minimized at an
+    intermediate $h_1$ for all mixtures in the sweep (best at $h_1=7$ for Mixtures~1--2 and $h_1=12$ for Mixture~3).
+    \item \textbf{Capacity matters for oracle accuracy:} the lowest oracle grid MSE observed in the saved runs is
+    achieved by the deeper MLP [30,20] across all mixtures.
+    \item \textbf{Output constraints interact with target sharpness:} Mixture~2 prefers scaled-sigmoid as best-by-NLL,
+    while Mixture~3 prefers ReLU, consistent with an implicit cap vs unbounded peak representation.
+    \item \textbf{Training dynamics degrade at small bandwidth:} $h_1=2$ slows convergence and increases late-stage
+    EvalMSE variability relative to $h_1=16$.
+    \item \textbf{KDE undersmoothing can break likelihood on complex mixtures:} Mixture~3 exhibits a much larger NLL at
+    $h_1=2$ than Mixture~1, consistent with near-zero density regions between modes.
+    \item \textbf{LOOCV target generation is empirically near-quadratic in $n$:} the measured log--log slope is $\approx 1.87$,
+    supporting the $\mathcal{O}(n^2)$ analysis.
+    \item \textbf{Boundary penalty is not automatically helpful:} in the saved artifact it slightly increases validation NLL,
+    and its effect on boundary mass depends strongly on the baseline boundary leakage.
+\end{itemize}
 
 \begin{thebibliography}{1}
 \bibitem{cybenko1989}
