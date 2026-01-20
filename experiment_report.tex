@@ -68,7 +68,8 @@ be the number of samples falling in $R_n$. A generic non-parametric density esti
     \label{eq:counting-estimator}
 \end{equation}
 Since $k_n$ depends on the random sample, $p_n(x_0)$ is itself a random variable. The estimator is
-consistent in probability if and only if
+consistent in probability under standard regularity assumptions (e.g., mild smoothness of $p$, appropriate
+window shapes, and negligible boundary effects) if
 \begin{equation}
     \lim_{n\to\infty} V_n = 0, \qquad
     \lim_{n\to\infty} k_n = \infty, \qquad
@@ -77,6 +78,11 @@ consistent in probability if and only if
 \end{equation}
 Two complementary constructions satisfy these conditions: fixing $V_n$ (Parzen Window) or fixing $k_n$
 (k-nearest neighbors).
+
+Kernel density estimation (KDE) can be viewed as a \emph{smoothed} version of the same local-counting idea:
+instead of a hard indicator window, each sample contributes through a smooth kernel centered at $x_i$.
+Under analogous assumptions on $p$ and a valid kernel $K$, KDE inherits corresponding consistency
+conditions through the bandwidth sequence $h_n$ (Eq.~\eqref{eq:kde-consistency}).
 
 In modern form, Parzen Window estimation is presented directly as \emph{kernel density estimation} (KDE):
 \begin{equation}
@@ -129,6 +135,22 @@ This makes the bias--variance trade-off explicit: if $h_n$
 decreases too slowly the estimator remains biased (oversmoothing), while if it decreases too fast the
 estimate becomes noisy (undersmoothing) because too few samples contribute effectively to each kernel.
 In the experiments, sweeps are reported in terms of $h_1$, while kernel computations use $h_n$.
+
+This bandwidth schedule also changes the supervised learning problem solved by the PNN.
+Because the leave-one-out KDE targets $\{y_i\}$ are computed using $h_n$, the regression target is
+\emph{data-dependent} and its smoothness varies with $n$: as $n$ grows, $h_n$ shrinks and the targets become
+increasingly sharp (and typically more ill-conditioned in dynamic range). Consequently, approximation
+difficulty and optimization stability can change with sample size independently of network capacity.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\linewidth]{figures/loocv_target_dynamic_range.jpeg}
+\caption{Leave-one-out target dynamic range vs. sample size $n$ under the shrinkage rule $h_n=h_1/\sqrt{n-1}$.
+The dynamic range (reported as $\log_{10}(y_{\max})-\log_{10}(y_{\min})$) grows rapidly with $n$ in this setup,
+supporting the practical motivation for log-density training (Eq.~\eqref{eq:log-density-loss}) and the claim
+that optimization stability can degrade as $n$ increases even when the network architecture is fixed.}
+\label{fig:loocv-target-dynamic-range}
+\end{figure}
 
 \section{Parzen Neural Networks (PNN)}
 \subsection{Architecture and Training Algorithm}
@@ -205,11 +227,13 @@ so that the network is not artificially prevented from exceeding the maximum obs
 approximation. In the reported experiments, $c=1.5$ is used as a conservative ``headroom'' factor.
 
 The targets $y_i$ are constructed with a leave-one-out Parzen estimator, which avoids the self-kernel
-contribution and yields an (asymptotically) unbiased estimate at sample locations:
+contribution and avoids a trivial overestimate at training points:
 \begin{equation}
     y_i=\frac{1}{n-1}\sum_{x\in\tau\setminus\{x_i\}}\frac{1}{V_n}
     \phi\!\left(\frac{x_i-x}{h_n}\right).
 \end{equation}
+This leave-one-out construction removes the degenerate self-influence term, but it does \emph{not} eliminate
+kernel smoothing bias with respect to the true density, which still depends on the kernel and bandwidth.
 Since targets are available only at the sample locations, the behavior between and outside samples is
 determined by the inductive bias of the network architecture.
 
@@ -310,7 +334,7 @@ log-likelihood (NLL)}:
 \end{equation}
 For PW/KDE, $\hat p$ is already normalized. For PNNs, normalization is performed on the finite domain $D$
 (Section 3.3) before computing the NLL. This aligns with the principle of selecting the simplest model
-that performs well on held-out data (an MDL-style viewpoint). Concretely, if two architectures achieve
+that performs well on held-out data (an Occam-style viewpoint). Concretely, if two architectures achieve
 similar validation NLL, the model with fewer parameters is preferred to reduce model complexity. This is
 not only a computational saving, but also a safeguard against overfitting artifacts (e.g., spurious
 "heavy tails" under finite-domain normalization) in low-data regimes.
@@ -329,8 +353,10 @@ This allows direct comparison between PW and PNN as $n$ and $h_1$ vary.
 
 Figures~\ref{fig:val-nll-sweep-m1}--\ref{fig:val-nll-sweep-m3} report the data-only validation criterion
 (held-out validation NLL) across bandwidths. Because PNNs are normalized on a finite
-domain $D$ (Section 3.3), their NLL depends on $D$; the comparison is still meaningful as long as the
-same $D$ is used consistently.
+domain $D$ (Section 3.3), their NLL depends on $D$. Moreover, KDE is naturally normalized on
+$\mathbb{R}^2$ while PNN NLL is computed after finite-domain normalization; therefore absolute NLL values
+are not strictly comparable across estimators with different normalization supports. In this report, NLL
+is used primarily as an internal, data-only selection metric within a fixed evaluation protocol.
 
 \subsubsection*{Findings}
 The following relationships between \emph{inputs} (bandwidth and architecture choices) and \emph{outputs}
@@ -430,17 +456,20 @@ the same domain $D$, the following comparison trends are validated:
 \begin{itemize}
     \item \textbf{Best-by-NLL PNN is competitive with (and sometimes better than) PW/KDE.}
     In Mixture~1 the best PNN validation NLL is within $\approx 3\times 10^{-4}$ of the best KDE NLL;
-    in Mixture~2 and Mixture~3, the best PNN NLL improves over KDE by about $0.066$ and $0.040$ respectively.
+    in Mixture~2 and Mixture~3, the best PNN NLL is lower under the reported evaluation protocol.
+    However, because the estimators are normalized on different supports (global KDE vs finite-domain PNN),
+    these likelihood values should be interpreted cautiously and are not a fully clean cross-estimator
+    likelihood comparison.
 
     \item \textbf{Best oracle grid MSE is comparable between PW/KDE and PNN.}
     The best PNN oracle grid MSE improves over the best KDE MSE in Mixtures~1--2 (ratios $\approx 0.70$ and
     $\approx 0.84$), while being essentially equal in Mixture~3 (ratio $\approx 1.01$).
 \end{itemize}
 
-These results can be interpreted as a form of \textbf{implicit regularization}: while KDE directly
-interpolates the sample set through local kernels, the PNN must represent the density through a finite
-parametric function class. This architectural constraint can smooth sampling noise, which is reflected
-in improved held-out NLL in the more complex mixtures.
+These results can be interpreted through a concrete capacity/smoothness lens: while KDE represents the
+estimate as a sum of $n$ local kernels, the PNN represents it in a fixed, finite-dimensional function
+class. This restriction can limit high-frequency variations relative to a highly undersmoothed KDE and
+may therefore reduce sensitivity to sampling noise on held-out points.
 
 \paragraph{Output activation behavior.}
 The best-performing output parameterization differs across mixtures (Table~\ref{tab:oracle-best-mse}):
@@ -596,6 +625,8 @@ Three relationships in this section are corroborated by the saved artifacts:
     \item \textbf{Measured inference times show a large speed gap in favor of PNN.}
     In Table~\ref{tab:runtime} (at $T=10^4$), the reported times imply a speedup of roughly
     $0.923\,/\,(7.66\times 10^{-4})\approx 1.2\times 10^3$ in favor of PNN forward evaluation.
+    This ratio is implementation- and hardware-dependent (e.g., accelerated or approximate KDE variants can
+    reduce the gap), but it illustrates the qualitative point that PNN inference cost does not scale with $n$.
 \end{itemize}
 
 \FloatBarrier
@@ -606,23 +637,36 @@ supervision away from the sample locations and is intended to reduce extrapolati
 of the domain that contain few or no samples.
 
 \subsubsection*{Findings}
-An ablation on Mixture~3 (MLP [30,20] with ReLU output and log-density training at $h_1=12$) shows that
-adding uniform supervision slightly improves held-out NLL (from $\approx 4.103$ without uniform points to
-$\approx 4.088$ with uniform points) and reduces the mean predicted density near the boundary of $D$
-(boundary-ring mean $\approx 2.341\times 10^{-3}$ to $\approx 2.316\times 10^{-3}$).
-This supports the intended effect: \textbf{uniform supervision reduces far-field artifacts} by anchoring
-the model to Parzen targets not only at samples but also in empty regions of the domain. In practical
-terms, this is evidence that the PNN is not merely memorizing sample locations, but is learning the
-structure of the density field in regions with little or no data.
+Figure~\ref{fig:uniform-supervision-m3} shows a representative \emph{single-run} qualitative example
+(Mixture~3, $h_1=12$), where uniform supervision appears to slightly reduce spurious mass away from the samples.
+
+However, because this mechanism is meant to improve extrapolation and tail behavior, its effect should be
+checked across random seeds (and ideally across multiple hyperparameter settings). A lightweight multi-seed
+ablation (3 seeds; fixed architecture and training protocol) indicates that the effect is
+\emph{configuration-dependent} rather than uniformly beneficial: the mean change in validation NLL
+(with uniform points minus without) is $+0.200\pm 0.177$ for Mixture~1, $+0.319\pm 0.234$ for Mixture~2,
+and $+0.004\pm 0.043$ for Mixture~3. Similarly, the change in boundary-ring mean density is small and variable
+(Mixture~1: $+1.51\pm 2.27\times 10^{-3}$; Mixture~2: $+1.81\pm 2.76\times 10^{-3}$; Mixture~3:
+$-2.25\pm 8.94\times 10^{-4}$). Overall, this suggests uniform supervision is a \emph{tunable regularizer} that
+can help in some settings but can also hurt likelihood metrics if it biases the learned density field.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.95\linewidth]{figures/uniform_supervision_comparison_mixture3.jpeg}
 \caption{Uniform supervision ablation (Mixture 3, $h_1=12$): learned normalized density heatmaps for the
 same PNN trained (left) only on leave-one-out sample targets, and (right) with additional interior
-uniform targets. Uniform supervision reduces spurious density away from the samples and slightly
-improves held-out NLL.}
+uniform targets. This is a representative qualitative example; aggregate behavior is summarized in
+Fig.~\ref{fig:uniform-supervision-multiseed}.}
 \label{fig:uniform-supervision-m3}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\linewidth]{figures/uniform_supervision_ablation_multiseed.jpeg}
+\caption{Uniform supervision ablation across mixtures (multi-seed summary for a fixed training protocol).
+The effect on validation NLL and boundary-region density is not consistent across mixtures and seeds in this
+quick check, so conclusions should be limited to ``may help, may hurt'' unless a broader sweep is performed.}
+\label{fig:uniform-supervision-multiseed}
 \end{figure}
 
 \subsection{Effect of Boundary Penalty}
@@ -631,18 +675,18 @@ mass near/outside the domain boundary. This reduces heavy tails, stabilizes fini
 and \emph{may} improve validation NLL when an unregularized model assigns excessive mass to low-density regions.
 The effect is assessed jointly via shape changes in overlay plots and validation NLL curves.
 
-In addition to the qualitative plots, Table~\ref{tab:boundary-nll} reports validation NLL with and without
-boundary penalty for the same configuration (selected by validation NLL) in each mixture. A decrease in
-NLL indicates improved generalization on held-out data under finite-domain normalization.
+In addition to the qualitative plots, Table~\ref{tab:boundary-nll} reports validation NLL statistics under a
+small $\lambda$ sweep (mean$\pm$std over seeds) for a fixed training protocol. Lower NLL indicates improved
+generalization on held-out data under finite-domain normalization.
 
 \subsubsection*{Findings}
-The saved boundary-penalty artifact reveals three practically relevant phenomena:
+The boundary-penalty results highlight three practically relevant phenomena:
 \begin{itemize}
-    \item \textbf{Here the boundary penalty slightly worsens validation NLL.}
-    For all three mixtures, Table~\ref{tab:boundary-nll} shows $\Delta$NLL $>0$ (about $+0.012$ to $+0.020$),
-    indicating a small artificial bias: the penalty explicitly pushes the learned density toward zero near the
-    boundary. This can conflict with the maximum-likelihood objective on the data, especially when samples lie
-    near the boundaries of $D$; therefore the observed NLL increase is expected under this selection criterion.
+    \item \textbf{The effect depends strongly on $\lambda$ and the mixture.}
+    In Table~\ref{tab:boundary-nll}, $\lambda=10^{-3}$ slightly worsens validation NLL on Mixtures~1--2, while
+    $\lambda=10^{-2}$ improves Mixtures~1--2 but slightly worsens Mixture~3 under this protocol.
+    This is consistent with the bias--variance intuition: too small a penalty does not meaningfully suppress
+    tail leakage, while too large a penalty can bias the estimate near the domain boundary.
 
     \item \textbf{The penalty effect is larger when baseline boundary mass is larger.}
     In the saved demo, the baseline boundary mean is smallest in Mixture~1 ($\approx 8.6\times 10^{-3}$) and largest
@@ -658,17 +702,27 @@ The saved boundary-penalty artifact reveals three practically relevant phenomena
 \centering
 \begin{tabular}{l r r r}
 \hline
-Mixture & Val NLL ($\lambda=0$) & Val NLL ($\lambda=10^{-2}$) & $\Delta$ NLL\\
+Mixture & Val NLL ($\lambda=0$) & Val NLL ($\lambda=10^{-3}$) & Val NLL ($\lambda=10^{-2}$)\\
 \hline
-1 & 3.4765 & 3.4886 & +0.0121\\
-2 & 3.3656 & 3.3852 & +0.0196\\
-3 & 4.0509 & 4.0632 & +0.0123\\
+1 & $3.451\pm 0.054$ & $3.462\pm 0.022$ & $3.297\pm 0.013$\\
+2 & $4.029\pm 0.046$ & $4.108\pm 0.013$ & $3.923\pm 0.182$\\
+3 & $4.021\pm 0.018$ & $4.019\pm 0.018$ & $4.037\pm 0.024$\\
 \hline
 \end{tabular}
-\caption{Validation NLL with/without boundary penalty on the same domain $D$. Lower is better.
-$\Delta$NLL denotes (with penalty) minus (without penalty).}
+\caption{Validation NLL (mean$\pm$std over 2 seeds) under a small boundary-penalty sweep on the same domain $D$.
+Lower is better. This table supports only qualitative conclusions about sensitivity to $\lambda$ under this
+protocol; a broader sweep would be required for a definitive recommendation.}
 \label{tab:boundary-nll}
 \end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\linewidth]{figures/boundary_penalty_lambda_sweep_multiseed.jpeg}
+\caption{Boundary-penalty $\lambda$ sweep (multi-seed summary for a fixed training protocol).
+Validation NLL varies non-monotonically with $\lambda$, reinforcing that this regularizer can introduce bias
+if set too large while being ineffective if set too small.}
+\label{fig:boundary-penalty-lambda-sweep}
+\end{figure}
 
 \begin{figure}[H]
 \centering
@@ -711,6 +765,12 @@ network $f_\theta$ such that
 Therefore, on a compact evaluation domain $D$, sufficiently wide sigmoid MLPs provide a principled function
 class for approximating smooth density surfaces (after enforcing non-negativity and normalization).
 
+It is important to stress a limitation: the theorem is an \emph{expressivity} result (existence of
+parameters), not a guarantee of learnability, sample efficiency, robustness to noisy targets, nor
+stability of finite-domain normalization. Thus, UAT supports the claim that approximation is possible
+in principle on compact domains, but does not by itself guarantee that regression on finite-sample KDE
+targets will recover a high-quality density estimate.
+
 The theoretical justification relies on approximating continuous functions on compact domains. In this
 setting the target density $p$ is a Gaussian mixture: it is continuous (indeed $C^\infty$) and integrates to 1.
 Restricted to a compact evaluation domain, it falls in the class of non-pathological (``non-paltry'') functions
@@ -746,17 +806,16 @@ this cost profile provides a broader computational perspective.
     $h_1=2$ than Mixture~1, consistent with near-zero density regions between modes.
     \item \textbf{LOOCV target generation is empirically near-quadratic in $n$:} the measured log--log slope is $\approx 1.87$,
     supporting the $\mathcal{O}(n^2)$ analysis.
-    \item \textbf{Boundary penalty is not automatically helpful:} in the saved artifact it slightly increases validation NLL,
-    and its effect on boundary mass depends strongly on the baseline boundary leakage.
-    \item \textbf{Uniform supervision reduces extrapolation artifacts:} adding interior uniform targets slightly improves held-out
-    NLL and reduces boundary-region density in Mixture~3 (Fig.~\ref{fig:uniform-supervision-m3}), consistent with the intended
-    stabilization far from samples.
+    \item \textbf{Boundary penalty is sensitive to $\lambda$:} a small multi-seed sweep shows non-monotonic changes in validation NLL,
+    with $\lambda=10^{-2}$ helping Mixtures~1--2 but slightly hurting Mixture~3 under this protocol.
+    \item \textbf{Uniform supervision is not uniformly beneficial:} the multi-seed ablation shows the effect on validation NLL can vary
+    by mixture and seed (Fig.~\ref{fig:uniform-supervision-multiseed}), so it should be treated as a tunable regularizer.
     \item \textbf{PW/KDE improves with more data and has an interior bandwidth optimum:} the PW-only $(n,h_1)$ sweep shows
     that best attainable grid MSE decreases as $n$ increases (best-MSE ratios $\approx 0.33$--$0.55$ from low to high $n$)
     and that both MSE and NLL are minimized at intermediate $h_1$.
     \item \textbf{PNN can match or outperform PW/KDE on the same selection metric:} best-by-NLL PNN is within $0.01$ of best
     KDE on all mixtures and improves over KDE on Mixtures~2--3 in the saved sweep.
-    \item \textbf{Model selection follows an MDL-style principle:} when validation NLL is similar across architectures, the
+    \item \textbf{Model selection follows an Occam-style principle:} when validation NLL is similar across architectures, the
     lower-capacity model is preferred to reduce complexity and limit spurious heavy tails under finite-domain normalization.
 \end{itemize}
 

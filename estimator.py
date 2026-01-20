@@ -154,6 +154,38 @@ def average_log_likelihood_kde(
     return float(np.mean(np.log(dens)))
 
 
+def average_log_likelihood_kde_on_domain(
+    points_eval_xy: np.ndarray,
+    points_train_xy: np.ndarray,
+    plotter,
+    h1: float,
+    *,
+    eps: float = 1e-12,
+) -> float:
+    """Average log-likelihood for KDE renormalized on the plotter domain D.
+
+    This makes the likelihood model comparable to the PNN likelihood that is normalized
+    by a Riemann sum on the same finite grid domain.
+    """
+    X = np.asarray(points_eval_xy, dtype=float)
+    T = np.asarray(points_train_xy, dtype=float)
+    if X.ndim != 2 or X.shape[1] != 2:
+        raise ValueError("points_eval_xy must have shape (m, 2)")
+    if T.ndim != 2 or T.shape[1] != 2:
+        raise ValueError("points_train_xy must have shape (n, 2)")
+
+    # Compute normalizer on the grid for the same KDE.
+    grid_points = np.c_[plotter.X.ravel(), plotter.Y.ravel()]
+    grid_dens = compute_kde(grid_points, T, float(h1))
+    dx, dy = _dx_dy_from_plotter(plotter)
+    Z = float(np.sum(grid_dens) * (dx * dy))
+    Z = max(Z, float(eps))
+
+    dens = compute_kde(X, T, float(h1))
+    dens = np.maximum(dens / Z, float(eps))
+    return float(np.mean(np.log(dens)))
+
+
 def average_log_likelihood_pnn_on_domain(
     pnn: "ParzenNeuralNetwork",
     points_eval_xy: np.ndarray,
@@ -378,6 +410,402 @@ def run_uniform_supervision_demo_only() -> None:
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
     print(f"Saved uniform supervision demo JSON: {out_path}")
+
+
+def benchmark_loocv_target_dynamic_range(
+    *,
+    mixture_index: int = 2,
+    h1: float = 12.0,
+    n_values: list[int] | None = None,
+    seeds: list[int] | None = None,
+    plot_grid: int = 100,
+) -> tuple[str, str]:
+    """Quantify how leave-one-out KDE targets change with n under h_n = h1/sqrt(n-1).
+
+    This addresses the review point that the PNN regression target is not fixed: as n increases,
+    h_n shrinks and the targets typically become sharper and more ill-conditioned.
+
+    Outputs:
+      - results/loocv_target_dynamic_range.csv
+      - figures/loocv_target_dynamic_range.jpeg
+    """
+    if n_values is None:
+        n_values = [50, 100, 200, 400, 800]
+    if seeds is None:
+        seeds = [0, 1, 2]
+
+    mixtures = _make_default_mixtures()
+    mixture = mixtures[int(mixture_index)]
+
+    rows: list[dict[str, float]] = []
+    for n in n_values:
+        n = int(n)
+        for seed in seeds:
+            np.random.seed(int(seed) + 10_000 * int(mixture_index + 1) + 100 * int(n))
+            samples_xy = mixture.sample_points_weighted(int(max(10, n // 5)), with_pdf=False)
+            # Ensure we have exactly n points (weighted sampling may not give exact n).
+            if samples_xy.shape[0] < n:
+                extra = mixture.sample_points(n - int(samples_xy.shape[0]), with_pdf=False)
+                samples_xy = np.vstack([samples_xy, extra])
+            elif samples_xy.shape[0] > n:
+                samples_xy = samples_xy[:n]
+
+            train_xy, _val_xy = split_train_validation(samples_xy, val_fraction=0.2, seed=int(seed))
+            y = compute_leave_one_out_kde_targets(train_xy, float(h1))
+            y = np.asarray(y, dtype=float)
+            y = y[np.isfinite(y)]
+            y = y[y > 0]
+            if y.size == 0:
+                continue
+
+            rows.append(
+                {
+                    "mixture": float(mixture_index + 1),
+                    "seed": float(seed),
+                    "n_train": float(train_xy.shape[0]),
+                    "h1": float(h1),
+                    "h_n": float(_effective_bandwidth(float(h1), int(train_xy.shape[0]))),
+                    "y_min": float(np.min(y)),
+                    "y_med": float(np.median(y)),
+                    "y_max": float(np.max(y)),
+                    "log10_range": float(np.log10(np.max(y)) - np.log10(np.min(y))),
+                }
+            )
+
+    os.makedirs("results", exist_ok=True)
+    os.makedirs("figures", exist_ok=True)
+
+    csv_path = os.path.join("results", "loocv_target_dynamic_range.csv")
+    with open(csv_path, "w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(
+            f,
+            fieldnames=["mixture", "seed", "n_train", "h1", "h_n", "y_min", "y_med", "y_max", "log10_range"],
+        )
+        w.writeheader()
+        w.writerows(rows)
+
+    # Plot mean±std log10 dynamic range vs n_train.
+    import matplotlib.pyplot as plt
+
+    n_arr = np.array([r["n_train"] for r in rows], dtype=float)
+    r_arr = np.array([r["log10_range"] for r in rows], dtype=float)
+    unique_n = np.unique(n_arr)
+    means = []
+    stds = []
+    for nn in unique_n:
+        vals = r_arr[n_arr == nn]
+        means.append(float(np.mean(vals)))
+        stds.append(float(np.std(vals)))
+
+    fig = plt.figure(figsize=(10, 6))
+    ax = fig.add_subplot(111)
+    ax.errorbar(unique_n, means, yerr=stds, marker="o", capsize=4)
+    ax.set_title("LOO KDE target dynamic range vs n (log10 max/min)")
+    ax.set_xlabel("n_train")
+    ax.set_ylabel("log10 range")
+    ax.grid(True, alpha=0.3)
+
+    fig_path = os.path.join("figures", "loocv_target_dynamic_range.jpeg")
+    plt.tight_layout()
+    plt.savefig(fig_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+    print(f"Saved target dynamic-range CSV: {csv_path}")
+    print(f"Saved target dynamic-range figure: {fig_path}")
+    return csv_path, fig_path
+
+
+def run_uniform_supervision_ablation_multiseed(
+    *,
+    seeds: list[int] | None = None,
+    h1_by_mixture: dict[int, float] | None = None,
+    epochs: int = 800,
+    learning_rate: float = 5e-3,
+    plot_grid: int = 100,
+) -> tuple[str, str]:
+    """Run a multi-seed uniform-supervision ablation across mixtures 1..3.
+
+    Outputs:
+      - results/uniform_supervision_ablation_multiseed.csv
+      - figures/uniform_supervision_ablation_multiseed.jpeg
+    """
+    if seeds is None:
+        seeds = [0, 1, 2]
+    # Default: use the report's best-by-NLL bandwidths as representative.
+    if h1_by_mixture is None:
+        h1_by_mixture = {1: 7.0, 2: 7.0, 3: 12.0}
+
+    mixtures = _make_default_mixtures()
+    plotter = Plotter(-5, 5, -5, 5, int(plot_grid))
+
+    rows: list[dict[str, float]] = []
+    for mixture_idx, mixture in enumerate(mixtures, start=1):
+        h1 = float(h1_by_mixture[int(mixture_idx)])
+        for seed in seeds:
+            # Deterministic sampling + deterministic split.
+            np.random.seed(int(seed) + 10_000 * int(mixture_idx))
+            torch.manual_seed(int(seed) + 10_000 * int(mixture_idx))
+
+            samples_xy = mixture.sample_points_weighted(100, with_pdf=False)
+            train_xy, val_xy = split_train_validation(samples_xy, val_fraction=0.2, seed=int(seed))
+
+            boundary_pts = sample_boundary_points_outside_plot(plotter, alpha=0.1, k=max(20, int(0.3 * len(train_xy))))
+
+            def _train(num_uniform_points: int) -> ParzenNeuralNetwork:
+                model = ParzenNeuralNetwork(
+                    hidden_layers=[30, 20],
+                    output_activation="relu",
+                    density_parameterization="log_density",
+                )
+                model.train_network(
+                    train_xy,
+                    plotter,
+                    bandwidth=float(h1),
+                    learning_rate=float(learning_rate),
+                    epochs=int(epochs),
+                    verbose=False,
+                    loss_mode="mse",
+                    num_uniform_points=int(num_uniform_points),
+                    boundary_points=None,
+                    lambda_boundary=0.0,
+                )
+                return model
+
+            # Train the two variants.
+            pnn_no = _train(0)
+            pnn_u = _train(len(train_xy))
+
+            # Metrics: PNN NLL on D, plus simple tail proxies.
+            val_nll_no = _nll_from_avg_loglik(average_log_likelihood_pnn_on_domain(pnn_no, val_xy, plotter))
+            val_nll_u = _nll_from_avg_loglik(average_log_likelihood_pnn_on_domain(pnn_u, val_xy, plotter))
+            pdf_no = pnn_no.estimate_pdf(plotter)
+            pdf_u = pnn_u.estimate_pdf(plotter)
+            ring_no = _mean_density_on_boundary_ring(pdf_no, plotter, ring_width=1.0)
+            ring_u = _mean_density_on_boundary_ring(pdf_u, plotter, ring_width=1.0)
+
+            # Shell diagnostics: unnormalized mean density on outside boundary points.
+            shell_no = mean_unnormalized_density_on_points(pnn_no, boundary_pts)
+            shell_u = mean_unnormalized_density_on_points(pnn_u, boundary_pts)
+
+            rows.append(
+                {
+                    "mixture": float(mixture_idx),
+                    "seed": float(seed),
+                    "h1": float(h1),
+                    "epochs": float(epochs),
+                    "val_nll_no_uniform": float(val_nll_no),
+                    "val_nll_with_uniform": float(val_nll_u),
+                    "delta_val_nll": float(val_nll_u - val_nll_no),
+                    "boundary_ring_mean_no_uniform": float(ring_no),
+                    "boundary_ring_mean_with_uniform": float(ring_u),
+                    "shell_mean_unnorm_no_uniform": float(shell_no),
+                    "shell_mean_unnorm_with_uniform": float(shell_u),
+                }
+            )
+
+    os.makedirs("results", exist_ok=True)
+    os.makedirs("figures", exist_ok=True)
+    csv_path = os.path.join("results", "uniform_supervision_ablation_multiseed.csv")
+    with open(csv_path, "w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(
+            f,
+            fieldnames=[
+                "mixture",
+                "seed",
+                "h1",
+                "epochs",
+                "val_nll_no_uniform",
+                "val_nll_with_uniform",
+                "delta_val_nll",
+                "boundary_ring_mean_no_uniform",
+                "boundary_ring_mean_with_uniform",
+                "shell_mean_unnorm_no_uniform",
+                "shell_mean_unnorm_with_uniform",
+            ],
+        )
+        w.writeheader()
+        w.writerows(rows)
+
+    import matplotlib.pyplot as plt
+
+    # Plot delta NLL per mixture with mean±std across seeds.
+    fig = plt.figure(figsize=(10, 6))
+    ax = fig.add_subplot(111)
+    for mixture_idx in [1, 2, 3]:
+        vals = np.array([r["delta_val_nll"] for r in rows if int(r["mixture"]) == mixture_idx], dtype=float)
+        if vals.size == 0:
+            continue
+        ax.errorbar(
+            [mixture_idx],
+            [float(np.mean(vals))],
+            yerr=[float(np.std(vals))],
+            fmt="o",
+            capsize=5,
+            label=f"Mixture {mixture_idx}",
+        )
+    ax.axhline(0.0, color="black", linewidth=1.0, alpha=0.6)
+    ax.set_title("Uniform supervision ablation (multi-seed): Δ ValNLL (with − without)")
+    ax.set_xlabel("Mixture")
+    ax.set_ylabel("Δ ValNLL")
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    fig_path = os.path.join("figures", "uniform_supervision_ablation_multiseed.jpeg")
+    plt.tight_layout()
+    plt.savefig(fig_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+    print(f"Saved uniform supervision ablation CSV: {csv_path}")
+    print(f"Saved uniform supervision ablation figure: {fig_path}")
+    return csv_path, fig_path
+
+
+def run_boundary_penalty_lambda_sweep_multiseed(
+    *,
+    seeds: list[int] | None = None,
+    lambdas: list[float] | None = None,
+    h1_by_mixture: dict[int, float] | None = None,
+    epochs: int = 800,
+    learning_rate: float = 5e-3,
+    num_uniform_points_ratio: float = 1.0,
+    plot_grid: int = 100,
+) -> tuple[str, str]:
+    """Run a small lambda sweep for the boundary penalty with mean±std across seeds.
+
+    Outputs:
+      - results/boundary_penalty_lambda_sweep_multiseed.csv
+      - figures/boundary_penalty_lambda_sweep_multiseed.jpeg
+    """
+    if seeds is None:
+        seeds = [0, 1]
+    if lambdas is None:
+        lambdas = [0.0, 1e-3, 1e-2]
+    if h1_by_mixture is None:
+        h1_by_mixture = {1: 7.0, 2: 7.0, 3: 12.0}
+
+    mixtures = _make_default_mixtures()
+    plotter = Plotter(-5, 5, -5, 5, int(plot_grid))
+
+    rows: list[dict[str, float]] = []
+    for mixture_idx, mixture in enumerate(mixtures, start=1):
+        h1 = float(h1_by_mixture[int(mixture_idx)])
+        for seed in seeds:
+            np.random.seed(int(seed) + 20_000 * int(mixture_idx))
+            torch.manual_seed(int(seed) + 20_000 * int(mixture_idx))
+
+            samples_xy = mixture.sample_points_weighted(100, with_pdf=False)
+            train_xy, val_xy = split_train_validation(samples_xy, val_fraction=0.2, seed=int(seed))
+
+            boundary_pts = sample_boundary_points_outside_plot(plotter, alpha=0.1, k=max(20, int(0.3 * len(train_xy))))
+            n_uniform = int(max(0, round(num_uniform_points_ratio * len(train_xy))))
+
+            for lam in lambdas:
+                pnn = ParzenNeuralNetwork(
+                    hidden_layers=[30, 20],
+                    output_activation="relu",
+                    density_parameterization="log_density",
+                )
+                pnn.train_network(
+                    train_xy,
+                    plotter,
+                    bandwidth=float(h1),
+                    learning_rate=float(learning_rate),
+                    epochs=int(epochs),
+                    verbose=False,
+                    loss_mode="mse",
+                    num_uniform_points=int(n_uniform),
+                    boundary_points=boundary_pts,
+                    lambda_boundary=float(lam),
+                )
+
+                val_nll = _nll_from_avg_loglik(average_log_likelihood_pnn_on_domain(pnn, val_xy, plotter))
+                pdf_grid = pnn.estimate_pdf(plotter)
+                ring = _mean_density_on_boundary_ring(pdf_grid, plotter, ring_width=1.0)
+                shell = mean_unnormalized_density_on_points(pnn, boundary_pts)
+
+                rows.append(
+                    {
+                        "mixture": float(mixture_idx),
+                        "seed": float(seed),
+                        "h1": float(h1),
+                        "epochs": float(epochs),
+                        "lambda_boundary": float(lam),
+                        "val_nll": float(val_nll),
+                        "boundary_ring_mean": float(ring),
+                        "shell_mean_unnorm": float(shell),
+                    }
+                )
+
+    os.makedirs("results", exist_ok=True)
+    os.makedirs("figures", exist_ok=True)
+    csv_path = os.path.join("results", "boundary_penalty_lambda_sweep_multiseed.csv")
+    with open(csv_path, "w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(
+            f,
+            fieldnames=[
+                "mixture",
+                "seed",
+                "h1",
+                "epochs",
+                "lambda_boundary",
+                "val_nll",
+                "boundary_ring_mean",
+                "shell_mean_unnorm",
+            ],
+        )
+        w.writeheader()
+        w.writerows(rows)
+
+    import matplotlib.pyplot as plt
+
+    # Plot ValNLL vs lambda for each mixture (mean±std across seeds).
+    fig = plt.figure(figsize=(10, 6))
+    ax = fig.add_subplot(111)
+    for mixture_idx in [1, 2, 3]:
+        xs = []
+        ys = []
+        es = []
+        for lam in lambdas:
+            vals = np.array(
+                [r["val_nll"] for r in rows if int(r["mixture"]) == mixture_idx and float(r["lambda_boundary"]) == float(lam)],
+                dtype=float,
+            )
+            if vals.size == 0:
+                continue
+            xs.append(float(lam))
+            ys.append(float(np.mean(vals)))
+            es.append(float(np.std(vals)))
+        if xs:
+            ax.errorbar(xs, ys, yerr=es, marker="o", capsize=4, label=f"Mixture {mixture_idx}")
+    ax.set_xscale("symlog", linthresh=1e-6)
+    ax.set_title("Boundary penalty lambda sweep (multi-seed): ValNLL vs λ")
+    ax.set_xlabel("λ (symlog)")
+    ax.set_ylabel("ValNLL")
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    fig_path = os.path.join("figures", "boundary_penalty_lambda_sweep_multiseed.jpeg")
+    plt.tight_layout()
+    plt.savefig(fig_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+    print(f"Saved boundary penalty lambda sweep CSV: {csv_path}")
+    print(f"Saved boundary penalty lambda sweep figure: {fig_path}")
+    return csv_path, fig_path
+
+
+def _make_default_mixtures() -> list["GaussianMixture"]:
+    """Construct Mixtures 1..3 exactly as in main()."""
+    weights1 = [1.0]
+    weights2 = [0.3, 0.3, 0.4]
+    weights3 = [0.2, 0.2, 0.2, 0.2, 0.2]
+    g1 = MultivariateGaussian([1, 2], [[1.62350208, -0.13337813], [-0.13337813, 0.63889251]])
+    g2 = MultivariateGaussian([-2, -1], [[1.14822883, 0.19240818], [0.19240818, 1.23432651]])
+    g3 = MultivariateGaussian([-1, 3], [[0.30198015, 0.13745508], [0.13745508, 1.69483031]])
+    g4 = MultivariateGaussian([1.5, -0.5], [[0.85553671, -0.19601649], [-0.19601649, 0.7507167]])
+    g5 = MultivariateGaussian([-3, 2], [[0.42437194, -0.17066673], [-0.17066673, 2.16117758]])
+    mixture1 = GaussianMixture([g1], weights1)
+    mixture2 = GaussianMixture([g1, g2, g3], weights2)
+    mixture3 = GaussianMixture([g1, g2, g3, g4, g5], weights3)
+    return [mixture1, mixture2, mixture3]
 
 
 def _bottom_20_bounds(values: np.ndarray) -> tuple[float, float] | None:
@@ -1050,7 +1478,31 @@ def main():
         action="store_true",
         help="Write PW error logs (CSV + SUMMARY lines) for each (n, h1)",
     )
+    # Professor-review helpers (lightweight experiments / diagnostics)
+    parser.add_argument(
+        "--review-assets",
+        action="store_true",
+        help="Generate extra review assets (target range + uniform ablation + boundary sweep) and exit",
+    )
+    parser.add_argument(
+        "--review-epochs",
+        type=int,
+        default=800,
+        help="Epochs for review ablation trainings (kept small by default)",
+    )
+    parser.add_argument(
+        "--review-grid",
+        type=int,
+        default=100,
+        help="Grid resolution for review assets (matches report default at 100)",
+    )
     args, _unknown = parser.parse_known_args()
+
+    if bool(args.review_assets):
+        benchmark_loocv_target_dynamic_range(mixture_index=2, h1=12.0)
+        run_uniform_supervision_ablation_multiseed(epochs=int(args.review_epochs), plot_grid=int(args.review_grid))
+        run_boundary_penalty_lambda_sweep_multiseed(epochs=int(args.review_epochs), plot_grid=int(args.review_grid))
+        return
 
     weights1 = [1.0]
     weights2 = [0.3, 0.3, 0.4]
