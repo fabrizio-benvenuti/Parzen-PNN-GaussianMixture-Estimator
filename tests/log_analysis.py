@@ -155,7 +155,11 @@ def parse_training_log(path: Path) -> ParsedLog:
 
 def iter_all_logs(logs_dir: Path) -> Iterable[ParsedLog]:
     for path in sorted(logs_dir.glob("*.txt")):
-        yield parse_training_log(path)
+        try:
+            yield parse_training_log(path)
+        except ValueError:
+            # Not a PNN training log (e.g., PW sweep logs). Ignore.
+            continue
 
 
 def last_run(log: ParsedLog) -> list[EpochPoint]:

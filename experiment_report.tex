@@ -368,11 +368,36 @@ Lower is better.}
 \label{fig:val-nll-sweep-m3}
 \end{figure}
 
+\subsubsection*{Findings (PW / KDE)}
+To explicitly study how Parzen Window (Gaussian KDE) behaves when both $n$ and $h_1$ vary, a PW-only
+sweep was executed over many $(n,h_1)$ pairs and the oracle grid MSE was logged.
+The resulting error surface (example in Fig.~\ref{fig:pw-errors-m3}) supports the following trends:
+\begin{itemize}
+    \item \textbf{The best achievable PW error improves with more samples.}
+    When comparing the best grid MSE attainable at the largest sampled $n$ values versus the smallest,
+    the mean best-MSE ratio is \emph{well below 1} (Mixture~1: $\approx 0.41$; Mixture~2: $\approx 0.33$;
+    Mixture~3: $\approx 0.55$), consistent with variance reduction as $n$ increases.
+
+    \item \textbf{The PW error surface exhibits an interior optimum in $h_1$.}
+    For a representative mid-range $n$, both grid MSE and held-out NLL are minimized at intermediate
+    bandwidths rather than at the smallest or largest tested $h_1$, matching the bias--variance
+    trade-off for KDE.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/Parzen_errors_mixture3.jpeg}
+\caption{PW/KDE oracle grid MSE over a sweep of sample size $n$ and base bandwidth $h_1$ (Mixture 3).
+The surface illustrates the joint dependence on $n$ and $h_1$, with an interior optimal region in $h_1$
+and improving best attainable error as $n$ increases.}
+\label{fig:pw-errors-m3}
+\end{figure}
+
 For additional context (not usable for model selection), Table~\ref{tab:oracle-best-mse} summarizes the best
 oracle grid MSE achieved among the saved training logs, where the MSE is computed against the known
 mixture ground truth on the evaluation grid.
 
-\begin{table}[h]
+\begin{table}[H]
 \centering
 \begin{tabular}{l l r r}
 \hline
@@ -387,6 +412,19 @@ Mixture & Best PNN configuration (logged) & $h_1$ & best grid MSE\\
 ground truth and are included only for analysis and sanity-checking, not for selecting hyperparameters.}
 \label{tab:oracle-best-mse}
 \end{table}
+
+\subsubsection*{Findings (PW vs PNN)}
+Using the saved sweep artifacts where PW/KDE and PNN are evaluated on the \emph{same} held-out points and
+the same domain $D$, the following comparison trends are validated:
+\begin{itemize}
+    \item \textbf{Best-by-NLL PNN is competitive with (and sometimes better than) PW/KDE.}
+    In Mixture~1 the best PNN validation NLL is within $\approx 3\times 10^{-4}$ of the best KDE NLL;
+    in Mixture~2 and Mixture~3, the best PNN NLL improves over KDE by about $0.066$ and $0.040$ respectively.
+
+    \item \textbf{Best oracle grid MSE is comparable between PW/KDE and PNN.}
+    The best PNN oracle grid MSE improves over the best KDE MSE in Mixtures~1--2 (ratios $\approx 0.70$ and
+    $\approx 0.84$), while being essentially equal in Mixture~3 (ratio $\approx 1.01$).
+\end{itemize}
 
 \paragraph{Output activation behavior.}
 The best-performing output parameterization differs across mixtures (Table~\ref{tab:oracle-best-mse}):
@@ -447,6 +485,15 @@ quantified from the saved training logs and sweep summaries:
 
 \begin{figure}[H]
 \centering
+\includegraphics[width=0.95\linewidth]{figures/Parzen_overlay_mixture2.jpeg}
+\caption{PW/KDE overlay example for Mixture 2 using a configuration selected by held-out NLL in the PW-only
+sweep (true density overlaid with the KDE estimate). This visualization illustrates how the KDE surface
+interpolates modes and how bandwidth controls the merge/split behavior of peaks.}
+\label{fig:pw-overlay-m2}
+\end{figure}
+
+\begin{figure}[H]
+\centering
 \includegraphics[width=0.95\linewidth]{figures/learning_results_bandwidth_sweep_mixture1.jpeg}
 \caption{PNN learning behavior across bandwidths for Mixture 1: training curves (top) and final oracle
 grid MSE vs $h_1$ (bottom), compared to KDE.}
@@ -502,7 +549,7 @@ The measured curve is consistent with $\mathcal{O}(n^2)$ growth.}
 To support the asymptotic analysis with empirical evidence, Table~\ref{tab:runtime} reports measured
 wall-clock runtimes on this machine for a single evaluation of $T=10^4$ query points.
 
-\begin{table}[h]
+\begin{table}[H]
 \centering
 \begin{tabular}{lrrr}
 \hline
@@ -560,7 +607,7 @@ The saved boundary-penalty artifact reveals three practically relevant phenomena
     modifies the unnormalized shape and the subsequent finite-domain renormalization can rescale the whole function.
 \end{itemize}
 
-\begin{table}[h]
+\begin{table}[H]
 \centering
 \begin{tabular}{l r r r}
 \hline
@@ -645,6 +692,11 @@ architecture capacity, and regularization (boundary penalty and uniform supervis
     supporting the $\mathcal{O}(n^2)$ analysis.
     \item \textbf{Boundary penalty is not automatically helpful:} in the saved artifact it slightly increases validation NLL,
     and its effect on boundary mass depends strongly on the baseline boundary leakage.
+    \item \textbf{PW/KDE improves with more data and has an interior bandwidth optimum:} the PW-only $(n,h_1)$ sweep shows
+    that best attainable grid MSE decreases as $n$ increases (best-MSE ratios $\approx 0.33$--$0.55$ from low to high $n$)
+    and that both MSE and NLL are minimized at intermediate $h_1$.
+    \item \textbf{PNN can match or outperform PW/KDE on the same selection metric:} best-by-NLL PNN is within $0.01$ of best
+    KDE on all mixtures and improves over KDE on Mixtures~2--3 in the saved sweep.
 \end{itemize}
 
 \begin{thebibliography}{1}

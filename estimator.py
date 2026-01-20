@@ -9,6 +9,8 @@ import copy
 import json
 import sys
 import time
+import argparse
+import csv
 
 # Ensure directories exist
 os.makedirs("figures", exist_ok=True)
@@ -885,6 +887,17 @@ def sample_boundary_points_outside_support(bounds: tuple, alpha: float, k: int) 
 def main():
     torch.autograd.set_detect_anomaly(True)
 
+    # CLI flags (kept minimal and backward-compatible).
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--pw-only", action="store_true", help="Run only Parzen Window (KDE) sweep")
+    parser.add_argument("--pw-seed", type=int, default=0, help="Seed for PW-only sweep reproducibility")
+    parser.add_argument(
+        "--pw-write-logs",
+        action="store_true",
+        help="Write PW error logs (CSV + SUMMARY lines) for each (n, h1)",
+    )
+    args, _unknown = parser.parse_known_args()
+
     weights1 = [1.0]
     weights2 = [0.3, 0.3, 0.4]
     weights3 = [0.2, 0.2, 0.2, 0.2, 0.2]
@@ -928,15 +941,87 @@ def main():
         sampled_points = []
         sampled_window = []
 
+        pw_csv_path = os.path.join("logs", f"pw_errors_mixture{mixture_idx + 1}.csv")
+        pw_txt_path = os.path.join("logs", f"pw_errors_mixture{mixture_idx + 1}.txt")
+        csv_fh = None
+        txt_fh = None
+        csv_writer = None
+        if bool(args.pw_write_logs) or bool(args.pw_only):
+            csv_fh = open(pw_csv_path, "w", encoding="utf-8", newline="")
+            txt_fh = open(pw_txt_path, "w", encoding="utf-8")
+            csv_writer = csv.DictWriter(
+                csv_fh,
+                fieldnames=[
+                    "mixture",
+                    "n",
+                    "h1",
+                    "h_n",
+                    "grid_mse",
+                    "grid_rmse",
+                    "grid_max_abs_err",
+                    "grid_mean_abs_err",
+                    "val_avg_nll",
+                ],
+            )
+            csv_writer.writeheader()
+
+        best_by_val_nll = (float("inf"), None, None)  # (nll, n, h1)
+        best_by_grid_mse = (float("inf"), None, None)
+
         for num_samples in num_samples_per_gaussian:
+            num_samples = int(num_samples)
+            # Reproducible sampling per mixture and n so h1 sweeps are comparable.
+            if bool(args.pw_only):
+                np.random.seed(int(args.pw_seed) + 1000 * int(mixture_idx + 1) + int(num_samples))
+
             samples_xy = mixture.sample_points(num_samples, with_pdf=False)
+            train_xy, val_xy = split_train_validation(samples_xy, val_fraction=0.2, seed=(mixture_idx + 1))
+
             for window_size in window_sizes:
-                parzen_estimator = ParzenWindowEstimator(samples_xy, window_size)
+                h1 = float(window_size)
+                parzen_estimator = ParzenWindowEstimator(train_xy, h1)
                 _ = parzen_estimator.estimate_pdf(plotter)
-                error = parzen_estimator.calculate_error_metrics(mixture.get_mesh(plotter.pos))
-                errors.append(error['Mean Squared Error'])
+                true_grid = mixture.get_mesh(plotter.pos)
+                err = parzen_estimator.calculate_error_metrics(true_grid)
+                grid_mse = float(err["Mean Squared Error"])
+
+                ll_val = average_log_likelihood_kde(val_xy, train_xy, h1)
+                val_nll = _nll_from_avg_loglik(ll_val)
+
+                errors.append(grid_mse)
                 sampled_points.append(num_samples)
-                sampled_window.append(window_size)
+                sampled_window.append(h1)
+
+                # Track best configurations.
+                if np.isfinite(val_nll) and val_nll < best_by_val_nll[0]:
+                    best_by_val_nll = (float(val_nll), int(num_samples), float(h1))
+                if np.isfinite(grid_mse) and grid_mse < best_by_grid_mse[0]:
+                    best_by_grid_mse = (float(grid_mse), int(num_samples), float(h1))
+
+                # Optional log export.
+                if csv_writer is not None and csv_fh is not None and txt_fh is not None:
+                    h_n = _effective_bandwidth(h1, int(train_xy.shape[0]))
+                    csv_writer.writerow(
+                        {
+                            "mixture": int(mixture_idx + 1),
+                            "n": int(num_samples),
+                            "h1": float(h1),
+                            "h_n": float(h_n),
+                            "grid_mse": float(err["Mean Squared Error"]),
+                            "grid_rmse": float(err["Root Mean Squared Error"]),
+                            "grid_max_abs_err": float(err["Max Absolute Error"]),
+                            "grid_mean_abs_err": float(err["Mean Absolute Error"]),
+                            "val_avg_nll": float(val_nll),
+                        }
+                    )
+                    txt_fh.write(
+                        "SUMMARY: "
+                        f"mixture={int(mixture_idx + 1)}, "
+                        f"n={int(num_samples)}, "
+                        f"h1={float(h1):.6g}, "
+                        f"grid_mse={float(err['Mean Squared Error']):.6e}, "
+                        f"val_avg_nll={float(val_nll):.6e}\n"
+                    )
 
         fig = plt.figure(figsize=(16, 9))
         ax = fig.add_subplot(projection='3d')
@@ -950,13 +1035,24 @@ def main():
         plt.close(fig)
         print(f"Saved error figure: {error_fig_filename}")
 
-        best_idx = int(np.argmin(errors))
-        best_num_samples = sampled_points[best_idx]
-        best_window_size = sampled_window[best_idx]
-        print(f"Best Parzen parameters for mixture {mixture_idx+1}: samples = {best_num_samples}, window = {best_window_size}")
+        # Use data-only selection for the overlay (best by validation NLL), but also report best-by-MSE.
+        print(
+            f"Best Parzen (by Val NLL) for mixture {mixture_idx+1}: "
+            f"samples = {best_by_val_nll[1]}, window = {best_by_val_nll[2]:.6g}, ValNLL = {best_by_val_nll[0]:.6g}"
+        )
+        print(
+            f"Best Parzen (by grid MSE) for mixture {mixture_idx+1}: "
+            f"samples = {best_by_grid_mse[1]}, window = {best_by_grid_mse[2]:.6g}, MSE = {best_by_grid_mse[0]:.6e}"
+        )
 
+        best_num_samples = int(best_by_val_nll[1]) if best_by_val_nll[1] is not None else int(sampled_points[int(np.argmin(errors))])
+        best_window_size = float(best_by_val_nll[2]) if best_by_val_nll[2] is not None else float(sampled_window[int(np.argmin(errors))])
+
+        if bool(args.pw_only):
+            np.random.seed(int(args.pw_seed) + 1000 * int(mixture_idx + 1) + int(best_num_samples))
         samples_best = mixture.sample_points(best_num_samples, with_pdf=False)
-        parzen_best = ParzenWindowEstimator(samples_best, best_window_size)
+        train_best, _val_best = split_train_validation(samples_best, val_fraction=0.2, seed=(mixture_idx + 1))
+        parzen_best = ParzenWindowEstimator(train_best, best_window_size)
         estimated_pdf_best = parzen_best.estimate_pdf(plotter)
         real_pdf = mixture.get_mesh(plotter.pos)
 
@@ -971,6 +1067,18 @@ def main():
         plt.savefig(overlay_fig_filename, dpi=300, bbox_inches='tight')
         plt.close(fig_overlay)
         print(f"Saved overlay figure: {overlay_fig_filename}")
+
+        if csv_fh is not None:
+            csv_fh.close()
+        if txt_fh is not None:
+            txt_fh.close()
+        if csv_writer is not None:
+            print(f"Saved PW error log CSV: {pw_csv_path}")
+            print(f"Saved PW error log TXT: {pw_txt_path}")
+
+    if bool(args.pw_only):
+        # Explicitly stop here so PNN artifacts are not modified.
+        return
     # --------------------------
     # Parzen Neural Network (PNN) Evaluation with learning-rate sweep and training surfaces
     for mixture_idx, mixture in enumerate(mixtures):
