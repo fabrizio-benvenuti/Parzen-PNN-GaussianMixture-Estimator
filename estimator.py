@@ -226,6 +226,160 @@ def _nll_from_avg_loglik(avg_loglik: float) -> float:
     return float(-avg_loglik)
 
 
+def _mean_density_on_boundary_ring(pdf_grid: np.ndarray, plotter, *, ring_width: float = 1.0) -> float:
+    """Mean density near the boundary of the plot domain (inside D).
+
+    Uses the already-normalized pdf evaluated on the plotter grid.
+    """
+    xmin = float(np.min(plotter.x))
+    xmax = float(np.max(plotter.x))
+    ymin = float(np.min(plotter.y))
+    ymax = float(np.max(plotter.y))
+    w = float(ring_width)
+    X = plotter.X
+    Y = plotter.Y
+    mask = (X <= xmin + w) | (X >= xmax - w) | (Y <= ymin + w) | (Y >= ymax - w)
+    vals = np.asarray(pdf_grid)[mask]
+    vals = vals[np.isfinite(vals)]
+    if vals.size == 0:
+        return float("nan")
+    return float(np.mean(vals))
+
+
+def run_uniform_supervision_demo_only() -> None:
+    """Generate a small ablation artifact for the report.
+
+    Trains the same PNN twice (no-uniform vs with-uniform interior supervision), then
+    saves a side-by-side heatmap and a JSON summary under results/.
+
+    This is intentionally minimal and does not depend on the full sweep pipeline.
+    """
+
+    # Keep it deterministic.
+    seed = 9103
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+
+    # Use the same plot domain as the report.
+    plotter = Plotter(-5, 5, -5, 5, 100)
+
+    # Construct Mixture 3 exactly as in main().
+    weights3 = [0.2, 0.2, 0.2, 0.2, 0.2]
+    g1 = MultivariateGaussian([1, 2], [[1.62350208, -0.13337813], [-0.13337813, 0.63889251]])
+    g2 = MultivariateGaussian([-2, -1], [[1.14822883, 0.19240818], [0.19240818, 1.23432651]])
+    g3 = MultivariateGaussian([-1, 3], [[0.30198015, 0.13745508], [0.13745508, 1.69483031]])
+    g4 = MultivariateGaussian([1.5, -0.5], [[0.85553671, -0.19601649], [-0.19601649, 0.7507167]])
+    g5 = MultivariateGaussian([-3, 2], [[0.42437194, -0.17066673], [-0.17066673, 2.16117758]])
+    mixture_idx = 2  # Mixture 3 (0-based)
+    mixture = GaussianMixture([g1, g2, g3, g4, g5], weights3)
+
+    # Match the main experiment defaults.
+    h1 = 12.0
+    learning_rate = 5e-3
+    epochs = 2000
+    use_log_density = True
+
+    # Representative architecture (also commonly best in the sweep).
+    cfg = {"hidden_layers": [30, 20], "out": "relu", "A": "auto"}
+    label = "MLP_30-20_sigmoid_outReLU"
+
+    # Samples + held-out split consistent with the main code.
+    samples_xy = mixture.sample_points_weighted(100, with_pdf=False)
+    train_xy, val_xy = split_train_validation(samples_xy, val_fraction=0.2, seed=mixture_idx + 1)
+
+    def _train(num_uniform_points: int) -> ParzenNeuralNetwork:
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        model = ParzenNeuralNetwork(
+            hidden_layers=cfg["hidden_layers"],
+            output_activation=cfg["out"],
+            output_scale=cfg.get("A", "auto"),
+            density_parameterization="log_density" if use_log_density else "density",
+        )
+        model.train_network(
+            train_xy,
+            plotter,
+            bandwidth=float(h1),
+            mixture=mixture,
+            log_file=None,
+            learning_rate=float(learning_rate),
+            epochs=int(epochs),
+            boundary_points=None,
+            lambda_boundary=0.0,
+            verbose=False,
+            loss_mode="mse",
+            weight_decay=0.0,
+            num_uniform_points=int(num_uniform_points),
+        )
+        return model
+
+    pnn_no_uniform = _train(0)
+    pnn_with_uniform = _train(len(train_xy))
+
+    pdf_no = pnn_no_uniform.estimate_pdf(plotter)
+    pdf_u = pnn_with_uniform.estimate_pdf(plotter)
+    ring_no = _mean_density_on_boundary_ring(pdf_no, plotter, ring_width=1.0)
+    ring_u = _mean_density_on_boundary_ring(pdf_u, plotter, ring_width=1.0)
+    val_nll_no = _nll_from_avg_loglik(average_log_likelihood_pnn_on_domain(pnn_no_uniform, val_xy, plotter))
+    val_nll_u = _nll_from_avg_loglik(average_log_likelihood_pnn_on_domain(pnn_with_uniform, val_xy, plotter))
+
+    fig = plt.figure(figsize=(14, 6))
+    fig.suptitle(f"Uniform supervision ablation — mixture {mixture_idx+1}\n{label}, h_1={h1:.3f}")
+
+    ax_a = fig.add_subplot(1, 2, 1)
+    im0 = ax_a.imshow(
+        pdf_no,
+        origin="lower",
+        extent=(float(np.min(plotter.x)), float(np.max(plotter.x)), float(np.min(plotter.y)), float(np.max(plotter.y))),
+        aspect="auto",
+        cmap="viridis",
+    )
+    ax_a.scatter(train_xy[:, 0], train_xy[:, 1], s=6, c="white", alpha=0.7)
+    ax_a.set_title(f"No uniform points\nValNLL={val_nll_no:.3g}, ringMean={ring_no:.3g}")
+    ax_a.set_xlabel("x")
+    ax_a.set_ylabel("y")
+    fig.colorbar(im0, ax=ax_a, fraction=0.046, pad=0.04)
+
+    ax_b = fig.add_subplot(1, 2, 2)
+    im1 = ax_b.imshow(
+        pdf_u,
+        origin="lower",
+        extent=(float(np.min(plotter.x)), float(np.max(plotter.x)), float(np.min(plotter.y)), float(np.max(plotter.y))),
+        aspect="auto",
+        cmap="viridis",
+    )
+    ax_b.scatter(train_xy[:, 0], train_xy[:, 1], s=6, c="white", alpha=0.7)
+    ax_b.set_title(f"With uniform points\nValNLL={val_nll_u:.3g}, ringMean={ring_u:.3g}")
+    ax_b.set_xlabel("x")
+    ax_b.set_ylabel("y")
+    fig.colorbar(im1, ax=ax_b, fraction=0.046, pad=0.04)
+
+    os.makedirs("figures", exist_ok=True)
+    fig_path = "figures/uniform_supervision_comparison_mixture3.jpeg"
+    plt.tight_layout()
+    plt.savefig(fig_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved uniform supervision comparison figure: {fig_path}")
+
+    payload = {
+        "mixture": 3,
+        "label": str(label),
+        "h1": float(h1),
+        "epochs": int(epochs),
+        "learning_rate": float(learning_rate),
+        "val_fraction": 0.2,
+        "ring_width": 1.0,
+        "no_uniform": {"val_avg_nll": float(val_nll_no), "boundary_ring_mean": float(ring_no)},
+        "with_uniform": {"val_avg_nll": float(val_nll_u), "boundary_ring_mean": float(ring_u)},
+        "figure": str(fig_path),
+    }
+    os.makedirs("results", exist_ok=True)
+    out_path = "results/uniform_supervision_demo_mixture3.json"
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+    print(f"Saved uniform supervision demo JSON: {out_path}")
+
+
 def _bottom_20_bounds(values: np.ndarray) -> tuple[float, float] | None:
     """Return (min, min + 20% range) bounds for finite values, with padding fallback."""
     if values.size == 0:
@@ -1412,7 +1566,7 @@ def main():
                 linewidth=2.0,
                 label=f"PNN Val NLL: {label}",
             )
-        ax_cv.set_title(f"Validation NLL (data-only CV) vs h_1 — mixture {mixture_idx+1}")
+        ax_cv.set_title(f"Validation NLL (held-out split) vs h_1 — mixture {mixture_idx+1}")
         ax_cv.set_xlabel("h_1")
         ax_cv.set_ylabel("Avg NLL on held-out points (lower is better)")
         ax_cv.grid(True, alpha=0.3)
@@ -1526,6 +1680,141 @@ def main():
             plt.close(fig_b)
             print(f"Saved boundary-penalty comparison figure: {b_filename}")
 
+            # --------------------------
+            # NEW (optional): Uniform supervision ablation (no-uniform vs uniform) for the same best-by-NLL config.
+            # Goal: show that adding interior Parzen targets reduces extrapolation artifacts far from samples.
+            # Disabled by default; enable with: --uniform-supervision-demo
+            if "--uniform-supervision-demo" in sys.argv:
+                try:
+                    seed_base = 9000 + int(mixture_idx + 1)
+                    np.random.seed(seed_base)
+                    torch.manual_seed(seed_base)
+
+                    pnn_no_uniform = ParzenNeuralNetwork(
+                        hidden_layers=cfg["hidden_layers"],
+                        output_activation=cfg["out"],
+                        output_scale=cfg.get("A", "auto"),
+                        density_parameterization="log_density" if use_log_density else "density",
+                    )
+                    _final_loss, _mse_hist, _train_hist = pnn_no_uniform.train_network(
+                        train_xy,
+                        plotter,
+                        bandwidth=float(best_h1),
+                        mixture=mixture,
+                        log_file=None,
+                        learning_rate=demo_lr,
+                        epochs=demo_epochs,
+                        boundary_points=None,
+                        lambda_boundary=0.0,
+                        verbose=False,
+                        loss_mode="mse" if use_log_density else "relative",
+                        weight_decay=0.0,
+                        num_uniform_points=0,
+                    )
+
+                    np.random.seed(seed_base)
+                    torch.manual_seed(seed_base)
+                    pnn_with_uniform = ParzenNeuralNetwork(
+                        hidden_layers=cfg["hidden_layers"],
+                        output_activation=cfg["out"],
+                        output_scale=cfg.get("A", "auto"),
+                        density_parameterization="log_density" if use_log_density else "density",
+                    )
+                    _final_loss, _mse_hist, _train_hist = pnn_with_uniform.train_network(
+                        train_xy,
+                        plotter,
+                        bandwidth=float(best_h1),
+                        mixture=mixture,
+                        log_file=None,
+                        learning_rate=demo_lr,
+                        epochs=demo_epochs,
+                        boundary_points=None,
+                        lambda_boundary=0.0,
+                        verbose=False,
+                        loss_mode="mse" if use_log_density else "relative",
+                        weight_decay=0.0,
+                        num_uniform_points=len(train_xy) if use_log_density else 0,
+                    )
+
+                    # Compare both models on the same grid and on a boundary-ring statistic.
+                    pdf_no = pnn_no_uniform.estimate_pdf(plotter)
+                    pdf_u = pnn_with_uniform.estimate_pdf(plotter)
+                    ring_no = _mean_density_on_boundary_ring(pdf_no, plotter, ring_width=1.0)
+                    ring_u = _mean_density_on_boundary_ring(pdf_u, plotter, ring_width=1.0)
+                    val_ll_no = average_log_likelihood_pnn_on_domain(pnn_no_uniform, val_xy, plotter)
+                    val_ll_u = average_log_likelihood_pnn_on_domain(pnn_with_uniform, val_xy, plotter)
+                    val_nll_no = _nll_from_avg_loglik(val_ll_no)
+                    val_nll_u = _nll_from_avg_loglik(val_ll_u)
+
+                    fig_u = plt.figure(figsize=(14, 6))
+                    fig_u.suptitle(
+                        f"Uniform supervision ablation — mixture {mixture_idx+1}\n{label}, h_1={best_h1:.3f}"
+                    )
+                    # Use 2D heatmaps to make far-field artifacts easy to spot.
+                    ax_a = fig_u.add_subplot(1, 2, 1)
+                    im0 = ax_a.imshow(
+                        pdf_no,
+                        origin="lower",
+                        extent=(
+                            float(np.min(plotter.x)),
+                            float(np.max(plotter.x)),
+                            float(np.min(plotter.y)),
+                            float(np.max(plotter.y)),
+                        ),
+                        aspect="auto",
+                        cmap="viridis",
+                    )
+                    ax_a.scatter(train_xy[:, 0], train_xy[:, 1], s=6, c="white", alpha=0.7)
+                    ax_a.set_title(f"No uniform points\nValNLL={val_nll_no:.3g}, ringMean={ring_no:.3g}")
+                    ax_a.set_xlabel("x")
+                    ax_a.set_ylabel("y")
+                    fig_u.colorbar(im0, ax=ax_a, fraction=0.046, pad=0.04)
+
+                    ax_b = fig_u.add_subplot(1, 2, 2)
+                    im1 = ax_b.imshow(
+                        pdf_u,
+                        origin="lower",
+                        extent=(
+                            float(np.min(plotter.x)),
+                            float(np.max(plotter.x)),
+                            float(np.min(plotter.y)),
+                            float(np.max(plotter.y)),
+                        ),
+                        aspect="auto",
+                        cmap="viridis",
+                    )
+                    ax_b.scatter(train_xy[:, 0], train_xy[:, 1], s=6, c="white", alpha=0.7)
+                    ax_b.set_title(f"With uniform points\nValNLL={val_nll_u:.3g}, ringMean={ring_u:.3g}")
+                    ax_b.set_xlabel("x")
+                    ax_b.set_ylabel("y")
+                    fig_u.colorbar(im1, ax=ax_b, fraction=0.046, pad=0.04)
+
+                    u_filename = f"figures/uniform_supervision_comparison_mixture{mixture_idx+1}.jpeg"
+                    plt.tight_layout()
+                    plt.savefig(u_filename, dpi=300, bbox_inches="tight")
+                    plt.close(fig_u)
+                    print(f"Saved uniform supervision comparison figure: {u_filename}")
+
+                    # Machine-readable summary (kept separate from sweep_results_*.json to avoid breaking any consumers).
+                    u_payload = {
+                        "mixture": int(mixture_idx + 1),
+                        "label": str(label),
+                        "h1": float(best_h1),
+                        "epochs": int(demo_epochs),
+                        "learning_rate": float(demo_lr),
+                        "ring_width": 1.0,
+                        "no_uniform": {"val_avg_nll": float(val_nll_no), "boundary_ring_mean": float(ring_no)},
+                        "with_uniform": {"val_avg_nll": float(val_nll_u), "boundary_ring_mean": float(ring_u)},
+                        "figure": str(u_filename),
+                    }
+                    u_out = f"results/uniform_supervision_demo_mixture{mixture_idx+1}.json"
+                    os.makedirs("results", exist_ok=True)
+                    with open(u_out, "w", encoding="utf-8") as f:
+                        json.dump(u_payload, f, indent=2)
+                    print(f"Saved uniform supervision demo JSON: {u_out}")
+                except Exception as e:
+                    print(f"WARN: uniform supervision ablation skipped due to: {e}")
+
             # Export a JSON summary for the whole sweep (report-ready, machine-readable).
             try:
                 sweep_payload = {
@@ -1579,6 +1868,10 @@ if __name__ == "__main__":
     #   --benchmark-complexity      : run the benchmark after the full experiment sweep
     if "--benchmark-complexity-only" in sys.argv:
         benchmark_loocv_target_generation()
+        raise SystemExit(0)
+
+    if "--uniform-supervision-demo-only" in sys.argv:
+        run_uniform_supervision_demo_only()
         raise SystemExit(0)
 
     main()

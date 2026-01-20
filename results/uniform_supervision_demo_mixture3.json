@@ -1,0 +1,18 @@
+{
+  "mixture": 3,
+  "label": "MLP_30-20_sigmoid_outReLU",
+  "h1": 12.0,
+  "epochs": 2000,
+  "learning_rate": 0.005,
+  "val_fraction": 0.2,
+  "ring_width": 1.0,
+  "no_uniform": {
+    "val_avg_nll": 4.102542877197266,
+    "boundary_ring_mean": 0.002341353567317128
+  },
+  "with_uniform": {
+    "val_avg_nll": 4.087715148925781,
+    "boundary_ring_mean": 0.0023155861999839544
+  },
+  "figure": "figures/uniform_supervision_comparison_mixture3.jpeg"
+}

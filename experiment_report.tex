@@ -226,8 +226,10 @@ normalizing constant is approximated by the Riemann sum
     \label{eq:riemann-normalization}
 \end{equation}
 The accuracy of Eq.~\eqref{eq:riemann-normalization} depends on both grid resolution and the choice of
-domain $D$. If $D$ is too small, non-negligible probability mass may lie outside $D$, biasing the
-normalization and any likelihood-style metric computed on $D$.
+domain $D$. If the estimator assigns non-negligible probability mass outside $D$, then the Riemann-sum
+estimate of $Z$ underestimates the true integral over $\mathbb{R}^2$. The subsequent normalization
+therefore rescales the density upward \\emph{inside} $D$, which can make likelihood-style metrics computed
+on $D$ (such as validation NLL) sensitive to the arbitrary choice of domain boundaries.
 
 \section{Advanced Regularization Techniques}
 \subsection{PDF Support and Boundary Penalty}
@@ -294,8 +296,10 @@ overfitting risk and exacerbate spurious ``heavy tails'' outside high-density re
 regularized (con).
 
 \subsection{Validation Criteria}
-To select hyperparameters without using the ground truth, a held-out validation set
-$\{x_j\}_{j=1}^{m}$ and compute the \textbf{validation negative log-likelihood (NLL)}:
+To select hyperparameters without using the ground truth, an 80/20 train/validation split is used.
+Concretely, $80\%$ of the sampled points are used for training and the remaining $20\%$ form a held-out
+validation set $\{x_j\}_{j=1}^{m}$. Model selection is performed by the \textbf{validation negative
+log-likelihood (NLL)}:
 \begin{equation}
     \mathrm{NLL}(\hat p;\{x_j\}_{j=1}^{m}) = -\frac{1}{m}\sum_{j=1}^{m}\log\big(\hat p(x_j)+\varepsilon\big).
 \end{equation}
@@ -316,8 +320,8 @@ $L_2(D)$ norm):
 \end{equation}
 This allows direct comparison between PW and PNN as $n$ and $h_1$ vary.
 
-Figures~\ref{fig:val-nll-sweep-m1}--\ref{fig:val-nll-sweep-m3} report the data-only cross-validation
-criterion (validation NLL on held-out points) across bandwidths. Because PNNs are normalized on a finite
+Figures~\ref{fig:val-nll-sweep-m1}--\ref{fig:val-nll-sweep-m3} report the data-only validation criterion
+(held-out validation NLL) across bandwidths. Because PNNs are normalized on a finite
 domain $D$ (Section 3.3), their NLL depends on $D$; the comparison is still meaningful as long as the
 same $D$ is used consistently.
 
@@ -347,7 +351,7 @@ are confirmed by the saved sweeps:
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.95\linewidth]{figures/validation_nll_bandwidth_sweep_mixture1.jpeg}
-\caption{Validation NLL (data-only cross-validation) as a function of bandwidth $h_1$ for Mixture 1.
+\caption{Validation NLL (held-out validation split) as a function of bandwidth $h_1$ for Mixture 1.
 Lower is better.}
 \label{fig:val-nll-sweep-m1}
 \end{figure}
@@ -355,7 +359,7 @@ Lower is better.}
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.95\linewidth]{figures/validation_nll_bandwidth_sweep_mixture2.jpeg}
-\caption{Validation NLL (data-only cross-validation) as a function of bandwidth $h_1$ for Mixture 2.
+\caption{Validation NLL (held-out validation split) as a function of bandwidth $h_1$ for Mixture 2.
 Lower is better.}
 \label{fig:val-nll-sweep-m2}
 \end{figure}
@@ -363,7 +367,7 @@ Lower is better.}
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.95\linewidth]{figures/validation_nll_bandwidth_sweep_mixture3.jpeg}
-\caption{Validation NLL (data-only cross-validation) as a function of bandwidth $h_1$ for Mixture 3.
+\caption{Validation NLL (held-out validation split) as a function of bandwidth $h_1$ for Mixture 3.
 Lower is better.}
 \label{fig:val-nll-sweep-m3}
 \end{figure}
@@ -425,6 +429,11 @@ the same domain $D$, the following comparison trends are validated:
     The best PNN oracle grid MSE improves over the best KDE MSE in Mixtures~1--2 (ratios $\approx 0.70$ and
     $\approx 0.84$), while being essentially equal in Mixture~3 (ratio $\approx 1.01$).
 \end{itemize}
+
+These results can be interpreted as a form of \textbf{implicit regularization}: while KDE directly
+interpolates the sample set through local kernels, the PNN must represent the density through a finite
+parametric function class. This architectural constraint can smooth sampling noise, which is reflected
+in improved held-out NLL in the more complex mixtures.
 
 \paragraph{Output activation behavior.}
 The best-performing output parameterization differs across mixtures (Table~\ref{tab:oracle-best-mse}):
@@ -527,7 +536,7 @@ where $W$ is the number of network parameters (often summarized as linear in $T$
 The main training-time cost specific to PNNs is the construction of leave-one-out targets: for each of
 the $n$ samples, $n-1$ kernel evaluations are required, yielding
 \begin{equation}
-    \\text{target generation cost} = \\mathcal{O}(n^2).
+    	ext{target generation cost} = \mathcal{O}(n^2).
 \end{equation}
 Training the network for $E$ epochs with $W$ parameters incurs an additional cost
 $\mathcal{O}(n E W)$, so the total training complexity can be summarized as
@@ -568,7 +577,9 @@ Three relationships in this section are corroborated by the saved artifacts:
 \begin{itemize}
     \item \textbf{Empirical LOOCV scaling is close to quadratic.}
     A log--log fit of target-generation runtime vs $n$ yields an exponent of approximately $1.87$, consistent
-    with $\mathcal{O}(n^2)$ up to constants and cache effects.
+    with $\mathcal{O}(n^2)$ up to constants and cache effects. The sub-quadratic exponent at these sample
+    sizes is plausibly explained by optimized vectorized kernels (NumPy/PyTorch) and memory/cache behavior,
+    which can mitigate the apparent scaling for medium $n$.
 
     \item \textbf{Parameter counts differ by an order of magnitude.}
     The MLP [20] has $W=81$ parameters, while the MLP [30,20] has $W=731$. Since PNN inference is
@@ -580,6 +591,30 @@ Three relationships in this section are corroborated by the saved artifacts:
 \end{itemize}
 
 \FloatBarrier
+\subsection{Effect of Uniform Supervision}
+Section 4.2 described \emph{internal uniform supervision}: augmenting the training set with uniformly
+sampled points in $D$ whose targets are computed using the same Parzen/KDE rule. This provides
+supervision away from the sample locations and is intended to reduce extrapolation artifacts in regions
+of the domain that contain few or no samples.
+
+\subsubsection*{Findings}
+An ablation on Mixture~3 (MLP [30,20] with ReLU output and log-density training at $h_1=12$) shows that
+adding uniform supervision slightly improves held-out NLL (from $\approx 4.103$ without uniform points to
+$\approx 4.088$ with uniform points) and reduces the mean predicted density near the boundary of $D$
+(boundary-ring mean $\approx 2.341\times 10^{-3}$ to $\approx 2.316\times 10^{-3}$).
+This supports the intended effect: \textbf{uniform supervision reduces far-field artifacts} by anchoring
+the model to Parzen targets not only at samples but also in empty regions of the domain.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/uniform_supervision_comparison_mixture3.jpeg}
+\caption{Uniform supervision ablation (Mixture 3, $h_1=12$): learned normalized density heatmaps for the
+same PNN trained (left) only on leave-one-out sample targets, and (right) with additional interior
+uniform targets. Uniform supervision reduces spurious density away from the samples and slightly
+improves held-out NLL.}
+\label{fig:uniform-supervision-m3}
+\end{figure}
+
 \subsection{Effect of Boundary Penalty}
 When boundary regularization (Section 4.1) is enabled, the model is discouraged from placing probability
 mass near/outside the domain boundary. This reduces heavy tails, stabilizes finite-domain normalization,
@@ -595,7 +630,9 @@ The saved boundary-penalty artifact reveals three practically relevant phenomena
 \begin{itemize}
     \item \textbf{Here the boundary penalty slightly worsens validation NLL.}
     For all three mixtures, Table~\ref{tab:boundary-nll} shows $\Delta$NLL $>0$ (about $+0.012$ to $+0.020$),
-    indicating a small bias increase that is not compensated by improved generalization under the data-only NLL.
+    indicating a small artificial bias: the penalty explicitly pushes the learned density toward zero near the
+    boundary. This can conflict with the maximum-likelihood objective on the data, especially when samples lie
+    near the boundaries of $D$.
 
     \item \textbf{The penalty effect is larger when baseline boundary mass is larger.}
     In the saved demo, the baseline boundary mean is smallest in Mixture~1 ($\approx 8.6\times 10^{-3}$) and largest
@@ -676,6 +713,11 @@ Compared to PW/KDE, PNNs shift computation from test time to training time: once
 efficient and does not grow with the number of samples. Overall performance depends on bandwidth choice,
 architecture capacity, and regularization (boundary penalty and uniform supervision).
 
+From an engineering standpoint, this suggests a clear computational trade-off: PW/KDE is the natural
+choice for rapid exploratory analysis and one-off estimation, while PNN is preferable in production or
+real-time inference scenarios where many density evaluations are required and the one-time training cost
+$\mathcal{O}(n^2 + n E W)$ can be amortized.
+
 \paragraph{Summary of validated findings.}
 \begin{itemize}
     \item \textbf{Bandwidth selection follows a bias--variance trade-off:} PNN validation NLL is minimized at an
@@ -692,11 +734,16 @@ architecture capacity, and regularization (boundary penalty and uniform supervis
     supporting the $\mathcal{O}(n^2)$ analysis.
     \item \textbf{Boundary penalty is not automatically helpful:} in the saved artifact it slightly increases validation NLL,
     and its effect on boundary mass depends strongly on the baseline boundary leakage.
+    \item \textbf{Uniform supervision reduces extrapolation artifacts:} adding interior uniform targets slightly improves held-out
+    NLL and reduces boundary-region density in Mixture~3 (Fig.~\ref{fig:uniform-supervision-m3}), consistent with the intended
+    stabilization far from samples.
     \item \textbf{PW/KDE improves with more data and has an interior bandwidth optimum:} the PW-only $(n,h_1)$ sweep shows
     that best attainable grid MSE decreases as $n$ increases (best-MSE ratios $\approx 0.33$--$0.55$ from low to high $n$)
     and that both MSE and NLL are minimized at intermediate $h_1$.
     \item \textbf{PNN can match or outperform PW/KDE on the same selection metric:} best-by-NLL PNN is within $0.01$ of best
     KDE on all mixtures and improves over KDE on Mixtures~2--3 in the saved sweep.
+    \item \textbf{Model selection follows an MDL-style principle:} when validation NLL is similar across architectures, the
+    lower-capacity model is preferred to reduce complexity and limit spurious heavy tails under finite-domain normalization.
 \end{itemize}
 
 \begin{thebibliography}{1}
