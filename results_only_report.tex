@@ -1,0 +1,156 @@
+% filepath: /home/fabrizio-benvenuti/git/Parzen-PNN-GaussianMixture-Estimator/results_only_report.tex
+\documentclass{article}
+\usepackage{amsmath, amssymb}
+\usepackage[margin=0.8in]{geometry}
+\usepackage{graphicx}
+\usepackage[ruled,vlined]{algorithm2e}
+\RestyleAlgo{ruled}
+\usepackage{tabularx}
+\usepackage{float}
+\usepackage{placeins}
+\usepackage{parskip}
+\usepackage[justification=centering]{caption}   
+
+\title{Parzen-PNN Gaussian Mixture Estimator: Results Report}
+\author{Fabrizio Benvenuti}
+\date{\today}
+\begin{document}
+\maketitle
+
+
+\section{Results}
+\subsection{Parzen Window}
+
+\centering
+In this section are reported the estimation results obtained by varying \\
+the input parameters of the Parzen Window estimator.\\
+(i.e., window size $h_1$ and number of sampled points per gaussian in the mixture).\\
+
+
+\subsubsection{Parzen Window Errors}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\linewidth]{figures/Parzen_errors_mixture1.jpeg}
+\caption{MSE between the mixture 1 pdf and its estimate PW estimate; while varying the window size $h_1$ and the sampled points for each gaussian.}
+\label{fig:parzen-errors-1}
+\end{figure}
+\newpage
+\centering
+In this graph it's also noticeable how the MSE does not vary linearly with window size;\\
+approaching zero at the optimal value of $h_1$ and increasing exponentially when undersmoothing occurs;\\
+transitioning to the oversmoothed region, the MSE still increases but less steeply.\\
+Samples per gaussian seem to have an exponential impact on reducing MSE,\\
+even if its effect is less visible than the base bandwidth one.\\
+NLL does not show the same steepness in the oversmoothing region as MSE does.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\linewidth]{figures/Parzen_errors_mixture2.jpeg}
+\caption{MSE between the mixture 2 pdf and its estimate PW estimate; while varying the window size $h_1$ and the sampled points for each gaussian.}
+\label{fig:parzen-errors-2}
+\end{figure}
+In this graph it's also noticeable how the MSE steepnes in the oversmoothed region is less pronounced\\
+compared to mixture 1; this is probably due to the fact that oversmothing the probability mass causes less error \\
+when the modes are closer together; whilst, in the mixture 1, overmoothing causes the probability mass to fall\\
+on the tails; which generates more error.\\
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\linewidth]{figures/Parzen_errors_mixture3.jpeg}
+\centering
+\caption{MSE between the mixture 3 pdf and its estimate PW estimate; while varying the window size $h_1$ and the sampled points for each gaussian.}
+\label{fig:parzen-errors-3}
+\end{figure}
+In this graph it's see how increasing sampled points seems to have less impact on reducing MSE\\
+compared to mixture 1 and 2. NLL does also not seem to change neither the shape in the undersmoothing region\\
+nor the optimal $h_1$ value. whilst the real optimal $h_1$  for the MSE seems to change with the number of gaussians in the mixture.
+The NLL does not, causing the selected mixtures to be more oversmoothed, the more gaussians there are in the mixture.
+\[
+h_{1,\mathrm{MSE}}^{\mathrm{opt}}(\mathrm{mix}_1,\mathrm{mix}_2,\mathrm{mix}_3)
+= (5.13,\;5.54,\;7,48),
+\qquad
+h_{1,\mathrm{NLL}}^{\mathrm{opt}}(\mathrm{mix}_1,\mathrm{mix}_2,\mathrm{mix}_3)
+= (2.11,\;3.19,\;3.75).
+\]
+
+
+\subsubsection{Parzen Window Overlays}
+
+\begin{figure}[H]
+\includegraphics[width=0.95\linewidth]{figures/Parzen_overlay_mixture1.jpeg}
+\caption{Figure displaying the overlay between the real pdf of mixture 1 and its PW estimate; with the optimal parameters selected by MSE and NLL respectively.}
+\label{fig:parzen-overlay-1}
+\end{figure}
+In this graph it's noticeable how increasing the sampled points per gaussian\\
+does help in reducing the MSE; but the effect on the NLL is less visible.\\
+Therefore the selected parameters by NLL are undersmoothed compared to the MSE ones.\\
+
+\begin{figure}[H]
+\includegraphics[width=0.95\linewidth]{figures/Parzen_overlay_mixture2.jpeg}
+\caption{Figure displaying the overlay between the real pdf of mixture 2 and its PW estimate; with the optimal parameters selected by MSE and NLL respectively.}
+\label{fig:parzen-overlay-2}
+\end{figure}
+It's also noticeable how the MSE selected parameters still cannot provide high accuracy\\
+in estimating the pdf's gaussians with very different variances, this is due to the fach that $h_1$\\
+is constant across the whole input space. therefore high peaks result oversmoothed \\
+to accommodate for the wider modes and viceversa.
+
+\begin{figure}[H]
+\includegraphics[width=0.95\linewidth]{figures/Parzen_overlay_mixture3.jpeg}
+\caption{Figure displaying the overlay between the real pdf of mixture 2 and its PW estimate; with the optimal parameters selected by MSE and NLL respectively.}
+\label{fig:parzen-overlay-3}
+\end{figure}
+In this graph it's instead noticeable how NLL selected parameters\\
+may sometime lead the predicted pdf with undersmoothed regions;\\
+that approximates single peaks as two distinct modes.\\
+to still have a low enough NLL value; this is because data points drawn\\
+from those peaks will still have high likelihood even if there is a valley in between them.\\
+This effect is less visible in MSE selected parameters since the overall shape of the pdf\\
+is more important than the likelihood of single data points.
+
+\subsection{Parzen Neural Network}
+\subsubsection{Parzen Neural Network Errors}
+\begin{figure}[H]
+\includegraphics[width=0.95\linewidth]{figures/learning_results_bandwidth_sweep_mixture1.jpeg}
+\caption{PNN bandwidth sweep (10 runs): top — representative iteration (closest to iteration mean) Eval\-MSE surface over epoch × $h_1$; bottom — final grid MSE vs $h_1$ shown as mean ± std across 10 runs (PNN) and KDE for reference.}
+\label{fig:pnn-error-1}
+\end{figure}
+In this graphs it's noticeable how the Min‑EvalMSE tends to have a lower optimal bandwidth with respect to the Val‑NLL selected one.\\
+This is opposite to what was observed in the Parzen Window estimator;\\
+which could also be seen in the error subgraphs with MSE vs $h_1$,\\
+where it is obvious that the PNN seems to work better with undersmoothed KDEs.\\
+
+\begin{figure}[H]
+\includegraphics[width=0.95\linewidth]{figures/learning_results_bandwidth_sweep_mixture2.jpeg}
+\caption{PNN bandwidth sweep (10 runs): top — representative iteration (closest to iteration mean) Eval\-MSE surface over epoch × $h_1$; bottom — final grid MSE vs $h_1$ shown as mean ± std across 10 runs (PNN) and KDE for reference.}
+\label{fig:pnn-error-2}
+\end{figure}
+In this graph it's noticable how increasing the number of gaussians in the mixture causes:
+\begin{itemize}
+\item Single hidden layer PNNs to perform worse than KDEs and double hidden layered PNNs, whilst beeing extremely sensitive to $h_1$ variations, especially in the undersmoothed region.
+\item The MSE mesh seems to be flattened, especially in the oversmoothed region, with respect to the mixture1.
+\item In this graph it's marked how PNNs with deeper architectures, have a high resiliency to having undersmoothed KDEs, whilst it still causes overfitting if the stopping rule is not set.
+\end{itemize}
+
+\begin{figure}[H]
+\includegraphics[width=0.95\linewidth]{figures/learning_results_bandwidth_sweep_mixture3.jpeg}
+\caption{PNN bandwidth sweep (10 runs): top — representative iteration (closest to iteration mean) Eval\-MSE surface over epoch × $h_1$; bottom — final grid MSE vs $h_1$ shown as mean ± std across 10 runs (PNN) and KDE for reference.}
+\label{fig:pnn-error-3}
+\end{figure}
+It's marked in this graphs how increasing the number of points inside the PDF, by increasing the number of gaussians inside the mixture;
+causes the Val-NLL (based onto held-out data points) to be a good metric to determine the best combination of architecture, stopping epoch and KDE bandwidth.
+This could be seen because the mixture 3 is the one where Val-NLL points have the lowest EvalMSE, across all mixtures
+\\
+
+\newpage
+\subsubsection{Parzen Neural Network Overlays}
+In this subsection will be graphed all the overlays at the Min Val-NLL, for each mixture;\\
+to appreciate the differences between architectures.
+
+\begin{figure}[H]
+\includegraphics[width=0.95\linewidth]{figures/overlays_h1_7p00_mixture1.jpeg}
+\caption{MSE between the mixture 3 pdf and its PNN estimate shown two ways:\\ top — Eval\-MSE surface over training epoch and Parzen bandwidth $h_1$;\\ bottom — MSE values (MSE vs $h_1$) for both KDE and PNN at Val\-NLL selection (epoch and $h_1$).}
+\label{fig:pnn-overlay-1}
+\end{figure}
+\end{document}
