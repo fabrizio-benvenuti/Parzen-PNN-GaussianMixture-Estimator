@@ -104,7 +104,7 @@ to accommodate for the wider modes and viceversa.
 In this graph it's instead noticeable how NLL selected parameters\\
 may sometime lead the predicted pdf with undersmoothed regions;\\
 that approximates single peaks as two distinct modes.\\
-to still have a low enough NLL value; this is because data points drawn\\
+This could even be whilst having a low enough NLL value; this is because data points drawn\\
 from those peaks will still have high likelihood even if there is a valley in between them.\\
 This effect is less visible in MSE selected parameters since the overall shape of the pdf\\
 is more important than the likelihood of single data points.
@@ -116,10 +116,11 @@ is more important than the likelihood of single data points.
 \caption{PNN bandwidth sweep (10 runs): top — representative iteration (closest to iteration mean) Eval\-MSE surface over epoch × $h_1$; bottom — final grid MSE vs $h_1$ shown as mean ± std across 10 runs (PNN) and KDE for reference.}
 \label{fig:pnn-error-1}
 \end{figure}
-In this graphs it's noticeable how the Min‑EvalMSE tends to have a lower optimal bandwidth with respect to the Val‑NLL selected one.\\
-This is opposite to what was observed in the Parzen Window estimator;\\
+In this graphs it's noticeable how the PNNs tends to have a lower optimal bandwidth with respect to the PW.\\
 which could also be seen in the error subgraphs with MSE vs $h_1$,\\
 where it is obvious that the PNN seems to work better with undersmoothed KDEs.\\
+It is also marked the difference between the std of the MSE at a certain $h_1$ with deep architectures,\\
+where the result between iterations, with the same epochs and the same $h_1$ might have very different results.
 
 \begin{figure}[H]
 \includegraphics[width=0.95\linewidth]{figures/learning_results_bandwidth_sweep_mixture2.jpeg}
@@ -138,19 +139,49 @@ In this graph it's noticable how increasing the number of gaussians in the mixtu
 \caption{PNN bandwidth sweep (10 runs): top — representative iteration (closest to iteration mean) Eval\-MSE surface over epoch × $h_1$; bottom — final grid MSE vs $h_1$ shown as mean ± std across 10 runs (PNN) and KDE for reference.}
 \label{fig:pnn-error-3}
 \end{figure}
-It's marked in this graphs how increasing the number of points inside the PDF, by increasing the number of gaussians inside the mixture;
+It's marked in this graphs how increasing the number of points inside the PDF (by increasing the number of gaussians inside the mixture);
 causes the Val-NLL (based onto held-out data points) to be a good metric to determine the best combination of architecture, stopping epoch and KDE bandwidth.
 This could be seen because the mixture 3 is the one where Val-NLL points have the lowest EvalMSE, across all mixtures
 \\
 
 \newpage
 \subsubsection{Parzen Neural Network Overlays}
-In this subsection will be graphed all the overlays at the Min Val-NLL, for each mixture;\\
-to appreciate the differences between architectures.
+In this subsection are shown the overlays at minimum validation NLL (ValNLL), for each mixture and each architecture.\\
+Each column corresponds to one architecture and is displayed at its own best bandwidth $h_1$ (the one minimizing ValNLL for that architecture on the held-out split).
 
 \begin{figure}[H]
-\includegraphics[width=0.95\linewidth]{figures/overlays_h1_7p00_mixture1.jpeg}
-\caption{MSE between the mixture 3 pdf and its PNN estimate shown two ways:\\ top — Eval\-MSE surface over training epoch and Parzen bandwidth $h_1$;\\ bottom — MSE values (MSE vs $h_1$) for both KDE and PNN at Val\-NLL selection (epoch and $h_1$).}
+\includegraphics[width=0.95\linewidth]{figures/overlays_best_mixture1.jpeg}
+\caption{Best overlays for mixture 1, selected by minimizing ValNLL.\\
+Top row: Parzen Window (KDE) estimate vs ground-truth mixture PDF at the same selected $h_1$.\\
+Bottom row: Parzen Neural Network (PNN) estimate vs ground-truth mixture PDF.}
 \label{fig:pnn-overlay-1}
 \end{figure}
+In this graph it is appreciable how PNN overlays from deep architectures have an easyer time at approximating high variance sections.\\
+and how using held-out points for validation causes selection of smoothed out overlays even if target KDEs are undersmoothed.
+
+\begin{figure}[H]
+\includegraphics[width=0.95\linewidth]{figures/overlays_best_mixture2.jpeg}
+\caption{Best overlays for mixture 2, selected by minimizing ValNLL.\\
+Top row: Parzen Window (KDE) estimate vs ground-truth mixture PDF at the same selected $h_1$.\\
+Bottom row: Parzen Neural Network (PNN) estimate vs ground-truth mixture PDF.}
+\label{fig:pnn-overlay-2}
+\end{figure}
+In this graphs it's instead marked how single layered PNNs perform better with oversmoothed KDEs,\\
+even if this causes poor MSE with the ground truth.????
+
+\begin{figure}[H]
+\includegraphics[width=0.95\linewidth]{figures/overlays_best_mixture3.jpeg}
+\caption{Best overlays for mixture 3, selected by minimizing ValNLL.\\
+Top row: Parzen Window (KDE) estimate vs ground-truth mixture PDF at the same selected $h_1$.\\
+Bottom row: Parzen Neural Network (PNN) estimate vs ground-truth mixture PDF.}
+\label{fig:pnn-overlay-3}
+\end{figure}
+It's marked how in this graphs the PNNs with higher layer count still have a hard time at\\
+approximating super high variance peaks, close to each others in the pdf, this could be due\\
+to the fact that giving that most points are inside the $R_n$ region inside the peak, the MLE\\
+that estimates points between the peaks, as part of the peaks, still get overall low NLL because\\
+those points are few, compare to the ones inside the peaks
+
+
+
 \end{document}

@@ -875,6 +875,120 @@ def _make_default_mixtures() -> list["GaussianMixture"]:
     return [mixture1, mixture2, mixture3]
 
 
+def _pnn_best_run_from_cache_for(
+    cache: dict,
+    *,
+    cfg_idx: int,
+    i_h: int,
+) -> dict:
+    """Return the cached run entry for the best run at (architecture, bandwidth index).
+
+    Prefers the explicit 'selected' index (fast). Falls back to scanning runs.
+    """
+    pnn_block = cache.get("pnn", {})
+    runs = pnn_block.get("runs", [])
+    if cfg_idx >= len(runs) or i_h >= len(runs[cfg_idx]):
+        raise KeyError("Cache missing PNN runs for requested indices")
+    runs_list = runs[cfg_idx][i_h]
+    if len(runs_list) == 0:
+        raise KeyError("Cache has empty runs list for requested indices")
+
+    selected = pnn_block.get("selected")
+    if isinstance(selected, list) and cfg_idx < len(selected) and i_h < len(selected[cfg_idx]):
+        sel_entry = selected[cfg_idx][i_h]
+        if isinstance(sel_entry, dict) and "best_run_index" in sel_entry:
+            best_idx = int(sel_entry["best_run_index"])
+            if 0 <= best_idx < len(runs_list):
+                return runs_list[best_idx]
+
+    # Fallback: choose by minimum val_nll.
+    vals = [float(r.get("val_nll", float("inf"))) for r in runs_list]
+    best_idx = int(np.nanargmin(np.asarray(vals, dtype=float)))
+    return runs_list[best_idx]
+
+
+def _plot_best_over_h1_overlays_for_mixture(
+    *,
+    mixture_idx: int,
+    mixture: "GaussianMixture",
+    plotter: "Plotter",
+    train_xy: np.ndarray,
+    val_xy: np.ndarray,
+    bandwidths: list[float] | list[int],
+    pnn_architectures: list[dict],
+    arch_label_fn,
+    per_arch_val_nll_by_h: list[list[float]],
+    cache_for_reconstruct: dict,
+) -> str:
+    """Create one overlay figure per mixture, independent of h1.
+
+    Each column (architecture) uses its own best h1 (min PNN ValNLL over h1), and the
+    two rows show KDE-vs-truth and PNN-vs-truth at that same h1.
+    """
+    n_arch = len(pnn_architectures)
+    fig_best = plt.figure(figsize=(5 * n_arch, 10))
+    fig_best.suptitle(
+        "Best surface overlays\n"
+        f"Mixture {mixture_idx + 1} — each column uses its own PNN architecture and h_1 that minimizes ValNLL",
+        fontsize=11,
+    )
+
+    arch_labels_all = [arch_label_fn(cfg) for cfg in pnn_architectures]
+    real_pdf = mixture.get_mesh(plotter.pos)
+
+    for j, label in enumerate(arch_labels_all):
+        nlls = per_arch_val_nll_by_h[j] if j < len(per_arch_val_nll_by_h) else []
+        if not isinstance(nlls, list) or len(nlls) != len(bandwidths):
+            best_i_h = 0
+        else:
+            best_i_h = int(np.nanargmin(np.asarray(nlls, dtype=float)))
+        best_h1 = float(bandwidths[best_i_h])
+
+        # KDE at the same best_h1 (within-column comparability).
+        kde_estimator = ParzenWindowEstimator(train_xy, window_size=float(best_h1))
+        estimated_pdf_kde = kde_estimator.estimate_pdf(plotter)
+        kde_val_ll = average_log_likelihood_kde(val_xy, train_xy, float(best_h1))
+        kde_val_nll = _nll_from_avg_loglik(kde_val_ll)
+
+        # PNN surface reconstructed from cached state_dict (no retraining).
+        run_entry = _pnn_best_run_from_cache_for(cache_for_reconstruct, cfg_idx=j, i_h=best_i_h)
+        meta = run_entry.get("meta", {})
+        pnn = _pnn_instantiate_from_cache(meta)
+        sd = run_entry.get("state_dict")
+        if sd is None:
+            raise RuntimeError("Cache entry missing state_dict")
+        pnn.load_state_dict(sd)
+        pnn_surface = pnn.estimate_pdf(plotter)
+        pnn_val_nll = float(run_entry.get("val_nll", float("nan")))
+
+        # Row 1: KDE vs truth
+        ax1 = fig_best.add_subplot(2, n_arch, j + 1, projection='3d')
+        ax1.plot_surface(plotter.X, plotter.Y, real_pdf, alpha=0.45, cmap='viridis')
+        ax1.plot_surface(plotter.X, plotter.Y, estimated_pdf_kde, alpha=0.45, cmap='cividis')
+        ax1.set_title(f"{label}\nKDE vs truth @ h_1={best_h1:.3g} (ValNLL={kde_val_nll:.3g})")
+        ax1.set_xlabel("x")
+        ax1.set_ylabel("y")
+        ax1.set_zlabel("pdf")
+
+        # Row 2: PNN vs truth
+        ax2 = fig_best.add_subplot(2, n_arch, n_arch + j + 1, projection='3d')
+        ax2.plot_surface(plotter.X, plotter.Y, real_pdf, alpha=0.45, cmap='viridis')
+        ax2.plot_surface(plotter.X, plotter.Y, pnn_surface, alpha=0.45, cmap='plasma')
+        ax2.set_title(
+            f"{label}\n"
+            f"PNN vs truth @ h_1={best_h1:.3g} (best-by-ValNLL over h_1;\nValNLL={pnn_val_nll:.3g})"
+        )
+        ax2.set_xlabel("x")
+        ax2.set_ylabel("y")
+        ax2.set_zlabel("pdf")
+
+    out_path = f"figures/overlays_best_mixture{mixture_idx + 1}.jpeg"
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=300, bbox_inches='tight')
+    plt.close(fig_best)
+    return out_path
+
+
 def _bottom_20_bounds(values: np.ndarray) -> tuple[float, float] | None:
     """Return (min, min + 20% range) bounds for finite values, with padding fallback."""
     if values.size == 0:
@@ -1555,6 +1669,11 @@ def main():
         action="store_true",
         help="PNN: skip training and load cached sweep models/results (re-generate figures/JSON only)",
     )
+    parser.add_argument(
+        "--best-overlays-only",
+        action="store_true",
+        help="PNN: generate per-mixture overlays_best_mixture*.jpeg from cached sweep and exit (fast)",
+    )
     parser.add_argument("--pw-seed", type=int, default=0, help="Seed for PW-only sweep reproducibility")
     parser.add_argument(
         "--pw-write-logs",
@@ -2001,6 +2120,10 @@ def main():
                 )
             cache_loaded = _torch_load_cache_trusted(cache_path)
 
+        if bool(args.best_overlays_only):
+            if cache_loaded is None:
+                raise SystemExit("--best-overlays-only requires --no-learn (cached sweep)")
+
         # Define hyperparameters
         learning_rates = [5e-3]
         bandwidths = [2, 7, 12, 16]
@@ -2106,6 +2229,27 @@ def main():
                 # Backward compatibility: cache might not have these fields yet.
                 pass
 
+        # Fast path: generate only the best-over-h1 overlays and skip all other figures.
+        if bool(args.best_overlays_only):
+            try:
+                per_arch_val_nll_by_h = cache_loaded["pnn"]["per_arch_val_nll_by_h"]
+            except Exception as e:
+                raise SystemExit(f"Cache missing per_arch_val_nll_by_h required for --best-overlays-only: {e}")
+            out_path = _plot_best_over_h1_overlays_for_mixture(
+                mixture_idx=mixture_idx,
+                mixture=mixture,
+                plotter=plotter,
+                train_xy=train_xy,
+                val_xy=val_xy,
+                bandwidths=[float(h) for h in bandwidths],
+                pnn_architectures=pnn_architectures,
+                arch_label_fn=arch_label,
+                per_arch_val_nll_by_h=per_arch_val_nll_by_h,
+                cache_for_reconstruct=cache_loaded,
+            )
+            print(f"Saved best-over-h1 overlays figure: {out_path}")
+            continue
+
         for i_h, bandwidth in enumerate(bandwidths):
             # Precompute KDE on grid once per bandwidth (same across architectures).
             kde_estimator = ParzenWindowEstimator(train_xy, window_size=float(bandwidth))
@@ -2133,6 +2277,7 @@ def main():
             per_arch_est_pdf: list[np.ndarray] = []
             per_arch_final_mse: list[float] = []
             per_arch_best_lr: list[float] = []
+            per_arch_best_val_nll: list[float] = []
 
             for cfg_idx, cfg in enumerate(pnn_architectures):
                 label = arch_label(cfg)
@@ -2269,6 +2414,7 @@ def main():
 
                 assert best_model is not None
                 per_arch_best_lr.append(float(best_lr) if best_lr is not None else float("nan"))
+                per_arch_best_val_nll.append(float(best_val_nll))
                 est_pdf = best_model.estimate_pdf(plotter)
                 per_arch_est_pdf.append(est_pdf)
                 per_arch_eval_mse_hist.append(best_hist)
@@ -2323,8 +2469,9 @@ def main():
             n_arch = len(pnn_architectures)
             fig_ov = plt.figure(figsize=(5 * n_arch, 10))
             fig_ov.suptitle(
-                "Surface overlays on the plot grid (same train split)\n"
-                f"Mixture {mixture_idx+1} — bandwidth h_1={float(bandwidth):.3g} (effective h_n=h_1/√(n_train−1))"
+                "Surface overlays on the plot grid (fixed train/val split)\n"
+                f"Mixture {mixture_idx+1} — bandwidth h_1={float(bandwidth):.3g} (effective h_n=h_1/√(n_train−1)) | "
+                "PNN panels show the best run per architecture (min ValNLL on held-out points)"
             )
 
             for j, label in enumerate(arch_labels):
@@ -2332,7 +2479,7 @@ def main():
                 ax1 = fig_ov.add_subplot(2, n_arch, j + 1, projection='3d')
                 ax1.plot_surface(plotter.X, plotter.Y, real_pdf, alpha=0.45, cmap='viridis')
                 ax1.plot_surface(plotter.X, plotter.Y, estimated_pdf_kde, alpha=0.45, cmap='cividis')
-                ax1.set_title(f"{label}\nKDE vs ground truth")
+                ax1.set_title(f"{label}\nKDE vs ground truth (same KDE for all columns)")
                 ax1.set_xlabel("x")
                 ax1.set_ylabel("y")
                 ax1.set_zlabel("pdf")
@@ -2342,8 +2489,10 @@ def main():
                 ax2.plot_surface(plotter.X, plotter.Y, real_pdf, alpha=0.45, cmap='viridis')
                 ax2.plot_surface(plotter.X, plotter.Y, per_arch_est_pdf[j], alpha=0.45, cmap='plasma')
                 lr_txt = per_arch_best_lr[j]
-                lr_note = f" (best LR={lr_txt:.2g})" if np.isfinite(lr_txt) else ""
-                ax2.set_title(f"{label}\nPNN vs ground truth{lr_note}")
+                lr_note = f",\nbest LR={lr_txt:.2g}" if np.isfinite(lr_txt) else ""
+                val_nll_txt = per_arch_best_val_nll[j] if j < len(per_arch_best_val_nll) else float("nan")
+                nll_note = f"ValNLL={val_nll_txt:.3g}" if np.isfinite(val_nll_txt) else "ValNLL=?"
+                ax2.set_title(f"{label}\nPNN vs ground truth (best-by-ValNLL) — {nll_note}{lr_note}")
                 ax2.set_xlabel("x")
                 ax2.set_ylabel("y")
                 ax2.set_zlabel("pdf")
@@ -2398,7 +2547,7 @@ def main():
                         ax_tr_right.set_ylim(*bounds)
 
                 lr_txt = per_arch_best_lr[j]
-                lr_note = f"best LR={lr_txt:.2g}" if np.isfinite(lr_txt) else "best LR=?"
+                lr_note = f"\nbest LR={lr_txt:.2g}" if np.isfinite(lr_txt) else "best LR=?"
                 ax_tr.set_title(f"{label}\nTraining curves (zoomed bottom 20%) — {lr_note}")
                 ax_tr.set_xlabel("Epoch")
 
@@ -2470,6 +2619,28 @@ def main():
             plt.savefig(learning_fig_filename, dpi=300, bbox_inches='tight')
             plt.close(fig_lr)
             print(f"Saved learning results figure: {learning_fig_filename}")
+
+        # --------------------------
+        # Figure: Best-over-h1 overlays for this mixture (independent of h1 filename)
+        try:
+            cache_for_reconstruct = cache_loaded if cache_loaded is not None else pnn_cache_payload
+            if cache_for_reconstruct is None:
+                raise RuntimeError("No cache available to reconstruct best runs")
+            out_path = _plot_best_over_h1_overlays_for_mixture(
+                mixture_idx=mixture_idx,
+                mixture=mixture,
+                plotter=plotter,
+                train_xy=train_xy,
+                val_xy=val_xy,
+                bandwidths=[float(h) for h in bandwidths],
+                pnn_architectures=pnn_architectures,
+                arch_label_fn=arch_label,
+                per_arch_val_nll_by_h=per_arch_val_nll_by_h,
+                cache_for_reconstruct=cache_for_reconstruct,
+            )
+            print(f"Saved best-over-h1 overlays figure: {out_path}")
+        except Exception as e:
+            print(f"Warning: failed to generate best-over-h1 overlays for mixture {mixture_idx+1}: {e}")
 
         # Persist cache after finishing this mixture.
         if pnn_cache_payload is not None:
@@ -2566,17 +2737,41 @@ def main():
                 pass
             ax_surf.set_xlabel("Epoch")
             ax_surf.set_ylabel("h_1")
-            ax_surf.set_zlabel("Eval grid MSE")
+            base_zlabel = "Eval grid MSE"
+            ax_surf.set_zlabel(base_zlabel)
             ax_surf.set_zlim(global_zmin, zoom_zmax)
             ax_surf.grid(True)
 
-            # Scientific notation for MSE to avoid unreadable ticks.
+            # Use scientific notation for readability, but avoid Matplotlib's separate
+            # offset text (e.g. “×10^k”) which in 3D often overlaps the z-label.
+            # We instead fold the exponent into the z-label and hide the offset text.
             try:
                 from matplotlib.ticker import ScalarFormatter
 
                 zfmt = ScalarFormatter(useMathText=True)
                 zfmt.set_powerlimits((0, 0))
                 ax_surf.zaxis.set_major_formatter(zfmt)
+
+                # Force a draw so ScalarFormatter computes orderOfMagnitude.
+                try:
+                    ax_surf.figure.canvas.draw()
+                except Exception:
+                    pass
+
+                try:
+                    oom = int(getattr(zfmt, "orderOfMagnitude", 0))
+                except Exception:
+                    oom = 0
+                if oom != 0:
+                    # IMPORTANT: avoid `$...$` here. In 3D, Matplotlib may decide the
+                    # label is already mathtext and then choke on embedded `$`.
+                    # Plain text keeps layout stable and avoids parse errors.
+                    ax_surf.set_zlabel(f"{base_zlabel} (×10^{oom})")
+
+                try:
+                    ax_surf.zaxis.get_offset_text().set_visible(False)
+                except Exception:
+                    pass
             except Exception:
                 pass
 
