@@ -21,11 +21,15 @@ class TestBoundaryPenaltyEffectSizeTracksBoundaryMass(unittest.TestCase):
             baseline.append(b0)
             change.append(abs(b1 - b0))
 
-        # Check monotonic ordering (baseline and change both increase with mixture id in the saved artifacts).
-        self.assertLessEqual(baseline[0], baseline[1])
-        self.assertLessEqual(baseline[1], baseline[2])
-        self.assertLessEqual(change[0], change[1])
-        self.assertLessEqual(change[1], change[2])
+        # Check that larger baseline boundary mass tends to produce a larger absolute change.
+        # Use rank-order agreement to avoid assuming any particular ordering by mixture id.
+        baseline_order = sorted(range(len(baseline)), key=lambda i: baseline[i])
+        change_order = sorted(range(len(change)), key=lambda i: change[i])
+        self.assertEqual(
+            baseline_order,
+            change_order,
+            msg=f"Expected baseline and change to have same ordering. baseline={baseline}, change={change}",
+        )
 
 
 if __name__ == "__main__":

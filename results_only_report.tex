@@ -22,7 +22,7 @@
 \subsection{Parzen Window}
 
 \centering
-In this section are reported the estimation results obtained by varying \\
+In this section are reported the estimation results ValNLL and MSE obtained by varying \\
 the input parameters of the Parzen Window estimator.\\
 (i.e., window size $h_1$ and number of sampled points per gaussian in the mixture).\\
 
@@ -32,7 +32,9 @@ the input parameters of the Parzen Window estimator.\\
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.8\linewidth]{figures/Parzen_errors_mixture1.jpeg}
-\caption{MSE between the mixture 1 pdf and its estimate PW estimate; while varying the window size $h_1$ and the sampled points for each gaussian.}
+\caption{In red: MSE between the mixture 1 pdf and its estimate PW estimate\\
+In blue: ValNLL between PW estimate and the sampled points;\\
+while varying the window size $h_1$ and the number of sampled points for each gaussian.}
 \label{fig:parzen-errors-1}
 \end{figure}
 \newpage
@@ -46,8 +48,10 @@ NLL does not show the same steepness in the oversmoothing region as MSE does.
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.8\linewidth]{figures/Parzen_errors_mixture2.jpeg}
-\caption{MSE between the mixture 2 pdf and its estimate PW estimate; while varying the window size $h_1$ and the sampled points for each gaussian.}
+\includegraphics[width=0.75\linewidth]{figures/Parzen_errors_mixture2.jpeg}
+\caption{In red: MSE between the mixture 2 pdf and its estimate PW estimate\\
+In blue: ValNLL between PW estimate and the sampled points;\\
+while varying the window size $h_1$ and the number of sampled points for each gaussian.}
 \label{fig:parzen-errors-2}
 \end{figure}
 In this graph it's also noticeable how the MSE steepnes in the oversmoothed region is less pronounced\\
@@ -59,7 +63,9 @@ on the tails; which generates more error.\\
 \centering
 \includegraphics[width=0.8\linewidth]{figures/Parzen_errors_mixture3.jpeg}
 \centering
-\caption{MSE between the mixture 3 pdf and its estimate PW estimate; while varying the window size $h_1$ and the sampled points for each gaussian.}
+\caption{In red: MSE between the mixture 3 pdf and its estimate PW estimate\\
+In blue: ValNLL between PW estimate and the sampled points;\\
+while varying the window size $h_1$ and the number of sampled points for each gaussian.}
 \label{fig:parzen-errors-3}
 \end{figure}
 In this graph it's see how increasing sampled points seems to have less impact on reducing MSE\\
@@ -113,7 +119,9 @@ is more important than the likelihood of single data points.
 \subsubsection{Parzen Neural Network Errors}
 \begin{figure}[H]
 \includegraphics[width=0.95\linewidth]{figures/learning_results_bandwidth_sweep_mixture1.jpeg}
-\caption{PNN bandwidth sweep (10 runs): top — representative iteration (closest to iteration mean) Eval\-MSE surface over epoch × $h_1$; bottom — final grid MSE vs $h_1$ shown as mean ± std across 10 runs (PNN) and KDE for reference.}
+\caption{Top: Eval-MSE surface between mixture 1 pdf and PNN estimate over epoch × $h_1$\\
+Bottom: final grid MSE (last epoch) vs $h_1$ shown as mean ± std\\
+across 10 runs (PNN) and KDE for reference.}
 \label{fig:pnn-error-1}
 \end{figure}
 In this graphs it's noticeable how the PNNs tends to have a lower optimal bandwidth with respect to the PW.\\
@@ -124,7 +132,9 @@ where the result between iterations, with the same epochs and the same $h_1$ mig
 
 \begin{figure}[H]
 \includegraphics[width=0.95\linewidth]{figures/learning_results_bandwidth_sweep_mixture2.jpeg}
-\caption{PNN bandwidth sweep (10 runs): top — representative iteration (closest to iteration mean) Eval\-MSE surface over epoch × $h_1$; bottom — final grid MSE vs $h_1$ shown as mean ± std across 10 runs (PNN) and KDE for reference.}
+\caption{Top: Eval-MSE surface between mixture 2 pdf and PNN estimate over epoch × $h_1$\\
+Bottom: final grid MSE (last epoch) vs $h_1$ shown as mean ± std\\
+across 10 runs (PNN) and KDE for reference.}
 \label{fig:pnn-error-2}
 \end{figure}
 In this graph it's noticable how increasing the number of gaussians in the mixture causes:
@@ -136,13 +146,14 @@ In this graph it's noticable how increasing the number of gaussians in the mixtu
 
 \begin{figure}[H]
 \includegraphics[width=0.95\linewidth]{figures/learning_results_bandwidth_sweep_mixture3.jpeg}
-\caption{PNN bandwidth sweep (10 runs): top — representative iteration (closest to iteration mean) Eval\-MSE surface over epoch × $h_1$; bottom — final grid MSE vs $h_1$ shown as mean ± std across 10 runs (PNN) and KDE for reference.}
+\caption{Top row: Eval-MSE surface between mixture 3 pdf and PNN estimate over epoch × $h_1$\\
+Bottom row: final grid MSE (last epoch) vs $h_1$ shown as mean ± std\\
+across 10 runs (PNN) and KDE for reference.}
 \label{fig:pnn-error-3}
 \end{figure}
 It's marked in this graphs how increasing the number of points inside the PDF (by increasing the number of gaussians inside the mixture);
 causes the Val-NLL (based onto held-out data points) to be a good metric to determine the best combination of architecture, stopping epoch and KDE bandwidth.
-This could be seen because the mixture 3 is the one where Val-NLL points have the lowest EvalMSE, across all mixtures
-\\
+This could be seen because the mixture 3 is the one where Val-NLL points have the lowest EvalMSE, across all mixtures.\\
 
 \newpage
 \subsubsection{Parzen Neural Network Overlays}
@@ -177,11 +188,9 @@ Bottom row: Parzen Neural Network (PNN) estimate vs ground-truth mixture PDF.}
 \label{fig:pnn-overlay-3}
 \end{figure}
 It's marked how in this graphs the PNNs with higher layer count still have a hard time at\\
-approximating super high variance peaks, close to each others in the pdf, this could be due\\
+approximating high variance peaks, close to each others in the pdf, this could be due\\
 to the fact that giving that most points are inside the $R_n$ region inside the peak, the MLE\\
 that estimates points between the peaks, as part of the peaks, still get overall low NLL because\\
-those points are few, compare to the ones inside the peaks
-
-
+those points are few, compared to the ones inside the peaks
 
 \end{document}

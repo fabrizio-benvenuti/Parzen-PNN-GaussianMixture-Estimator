@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import multivariate_normal
+from scipy.spatial import ConvexHull
+from scipy.spatial import QhullError
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -616,7 +618,9 @@ def run_uniform_supervision_ablation_multiseed(
             samples_xy = mixture.sample_points_weighted(100, with_pdf=False)
             train_xy, val_xy = split_train_validation(samples_xy, val_fraction=0.2, seed=int(seed))
 
-            boundary_pts = sample_boundary_points_outside_plot(plotter, alpha=0.1, k=max(20, int(0.3 * len(train_xy))))
+            boundary_pts = sample_boundary_points_outside_convex_hull(
+                samples_xy, alpha=0.1, k=max(20, int(0.3 * len(train_xy)))
+            )
 
             def _train(num_uniform_points: int) -> ParzenNeuralNetwork:
                 model = ParzenNeuralNetwork(
@@ -762,7 +766,7 @@ def run_boundary_penalty_lambda_sweep_multiseed(
             samples_xy = mixture.sample_points_weighted(100, with_pdf=False)
             train_xy, val_xy = split_train_validation(samples_xy, val_fraction=0.2, seed=int(seed))
 
-            boundary_pts = sample_boundary_points_outside_plot(plotter, alpha=0.1, k=max(20, int(0.3 * len(train_xy))))
+            boundary_pts = sample_boundary_points_outside_convex_hull(samples_xy, alpha=0.1, k=max(20, int(0.3 * len(train_xy))))
             n_uniform = int(max(0, round(num_uniform_points_ratio * len(train_xy))))
 
             for lam in lambdas:
@@ -880,20 +884,33 @@ def _pnn_best_run_from_cache_for(
     *,
     cfg_idx: int,
     i_h: int,
+    lambda_boundary: float | None = None,
 ) -> dict:
     """Return the cached run entry for the best run at (architecture, bandwidth index).
 
     Prefers the explicit 'selected' index (fast). Falls back to scanning runs.
     """
     pnn_block = cache.get("pnn", {})
-    runs = pnn_block.get("runs", [])
+    lam = 0.0 if lambda_boundary is None else float(lambda_boundary)
+
+    runs = None
+    selected = None
+    if "runs_by_lambda" in pnn_block:
+        runs_by_lambda = pnn_block.get("runs_by_lambda", {})
+        selected_by_lambda = pnn_block.get("selected_by_lambda", {})
+        runs = runs_by_lambda.get(str(lam))
+        selected = selected_by_lambda.get(str(lam))
+
+    if runs is None:
+        # Backward compatibility: lambda=0 stored in the legacy fields.
+        runs = pnn_block.get("runs", [])
+        selected = pnn_block.get("selected")
     if cfg_idx >= len(runs) or i_h >= len(runs[cfg_idx]):
         raise KeyError("Cache missing PNN runs for requested indices")
     runs_list = runs[cfg_idx][i_h]
     if len(runs_list) == 0:
         raise KeyError("Cache has empty runs list for requested indices")
 
-    selected = pnn_block.get("selected")
     if isinstance(selected, list) and cfg_idx < len(selected) and i_h < len(selected[cfg_idx]):
         sel_entry = selected[cfg_idx][i_h]
         if isinstance(sel_entry, dict) and "best_run_index" in sel_entry:
@@ -1060,35 +1077,83 @@ def compute_kde(points_eval_xy: np.ndarray, points_train_xy: np.ndarray, h1: flo
     return y
 
 
-def sample_boundary_points_outside_plot(plotter, alpha: float, k: int) -> np.ndarray:
-    r"""Sample k points from a padded rectangle around the plot domain, rejecting inside points.
+def _points_inside_convex_hull(points_xy: np.ndarray, hull: ConvexHull, *, tol: float = 1e-12) -> np.ndarray:
+    """Return boolean mask for points inside (or on) the convex hull.
 
-    The plot rectangle is the support X. We sample from the shell \bar B_δ = (X padded by δ) \ X,
-    with δ = alpha * diameter(X).
+    Uses the half-space representation from QHull: for each facet, the hull stores
+    an equation a*x + b*y + c = 0 with the *inside* satisfying <= 0.
     """
-    min_x = float(np.min(plotter.x))
-    max_x = float(np.max(plotter.x))
-    min_y = float(np.min(plotter.y))
-    max_y = float(np.max(plotter.y))
+    P = np.asarray(points_xy, dtype=float)
+    if P.ndim != 2 or P.shape[1] != 2:
+        raise ValueError("points_xy must have shape (m, 2)")
+    A = np.asarray(hull.equations[:, :2], dtype=float)
+    b = np.asarray(hull.equations[:, 2], dtype=float)
+    vals = P @ A.T + b[None, :]
+    return np.all(vals <= float(tol), axis=1)
+
+
+def sample_boundary_points_outside_convex_hull(points_xy: np.ndarray, alpha: float, k: int) -> np.ndarray:
+    r"""Sample k points outside the convex hull of a 2D point set.
+
+    We sample uniformly from a padded axis-aligned bounding box around the sampled
+    points, then reject candidate points that lie inside the convex hull.
+
+    If the hull is degenerate (too few points / collinear), we fall back to sampling
+    outside the axis-aligned bounding box of the points (shell outside the box).
+    """
+    pts_xy = np.asarray(points_xy, dtype=float)
+    if pts_xy.ndim != 2 or pts_xy.shape[1] != 2:
+        raise ValueError("points_xy must have shape (n, 2)")
+    n = int(pts_xy.shape[0])
+    if n < 1:
+        return np.zeros((0, 2), dtype=float)
+
+    min_x = float(np.min(pts_xy[:, 0]))
+    max_x = float(np.max(pts_xy[:, 0]))
+    min_y = float(np.min(pts_xy[:, 1]))
+    max_y = float(np.max(pts_xy[:, 1]))
     diameter = float(np.sqrt((max_x - min_x) ** 2 + (max_y - min_y) ** 2))
-    delta = float(alpha) * diameter
+    delta = float(alpha) * (diameter if diameter > 0 else 1.0)
 
     pad_min_x = min_x - delta
     pad_max_x = max_x + delta
     pad_min_y = min_y - delta
     pad_max_y = max_y + delta
 
-    pts: list[list[float]] = []
+    hull = None
+    if n >= 3:
+        try:
+            hull = ConvexHull(pts_xy)
+        except QhullError:
+            hull = None
+        except Exception:
+            hull = None
+
+    out: list[list[float]] = []
     attempts = 0
-    max_attempts = max(10000, 10 * int(k))
-    while len(pts) < int(k) and attempts < max_attempts:
+    max_attempts = max(20000, 20 * int(k))
+
+    # Degenerate hull: sample from the shell outside the tight bounding box.
+    if hull is None:
+        while len(out) < int(k) and attempts < max_attempts:
+            x = float(np.random.uniform(pad_min_x, pad_max_x))
+            y = float(np.random.uniform(pad_min_y, pad_max_y))
+            inside_box = (min_x <= x <= max_x) and (min_y <= y <= max_y)
+            if not inside_box:
+                out.append([x, y])
+            attempts += 1
+        return np.asarray(out, dtype=float)
+
+    # Proper hull: reject points inside the convex hull.
+    while len(out) < int(k) and attempts < max_attempts:
         x = float(np.random.uniform(pad_min_x, pad_max_x))
         y = float(np.random.uniform(pad_min_y, pad_max_y))
-        inside = (min_x <= x <= max_x) and (min_y <= y <= max_y)
+        cand = np.asarray([[x, y]], dtype=float)
+        inside = bool(_points_inside_convex_hull(cand, hull, tol=1e-12)[0])
         if not inside:
-            pts.append([x, y])
+            out.append([x, y])
         attempts += 1
-    return np.asarray(pts, dtype=float)
+    return np.asarray(out, dtype=float)
 
 class ParzenNeuralNetwork(nn.Module):
     r"""Parzen Neural Network (PNN) as required by the project prompt.
@@ -2086,39 +2151,32 @@ def main():
         print(f"Processing Gaussian Mixture {mixture_idx + 1} with PNN and LR sweep")
 
         cache_path = _pnn_sweep_cache_path(mixture_idx=mixture_idx)
-        cache_loaded = None
-        use_cache_only = bool(args.no_learn)
+        cache_loaded: dict | None = None
 
-        # If a cache exists and the user did NOT ask for --no-learn, confirm before retraining.
-        # Require typing YES to delete/overwrite the cache; otherwise, fall back to cache-only.
-        if (not use_cache_only) and os.path.exists(cache_path):
-            if sys.stdin is not None and sys.stdin.isatty():
+        if os.path.exists(cache_path):
+            # Cache exists: either reuse it (and optionally extend it by training missing lambdas),
+            # or delete it if the user explicitly requests a full retrain.
+            if (not bool(args.no_learn)) and (sys.stdin is not None) and sys.stdin.isatty():
                 resp = input(
                     f"PNN cache already exists for mixture {mixture_idx+1}: {cache_path}\n"
-                    "Type YES to delete it and retrain (this may take time).\n"
-                    "Type anything else to reuse cache (equivalent to --no-learn): "
+                    "Type YES to delete it and retrain everything from scratch.\n"
+                    "Type anything else to reuse it (and train only missing lambdas, if any): "
                 ).strip()
-                if resp != "YES":
-                    use_cache_only = True
-                    print(f"Reusing cache for mixture {mixture_idx+1} (no training).")
-                else:
+                if resp == "YES":
                     try:
                         os.remove(cache_path)
                         print(f"Deleted cache: {cache_path}")
                     except OSError as e:
                         raise SystemExit(f"Failed to delete cache {cache_path}: {e}")
-            else:
-                # Non-interactive mode: be safe and reuse cache.
-                use_cache_only = True
-                print(f"Non-interactive session: reusing cache for mixture {mixture_idx+1}.")
 
-        if use_cache_only:
-            if not os.path.exists(cache_path):
-                raise SystemExit(
-                    f"Cache not found: {cache_path}. "
-                    "Run once without --no-learn to generate it."
-                )
-            cache_loaded = _torch_load_cache_trusted(cache_path)
+            if os.path.exists(cache_path):
+                cache_loaded = _torch_load_cache_trusted(cache_path)
+
+        if bool(args.no_learn) and cache_loaded is None:
+            raise SystemExit(
+                f"Cache not found: {cache_path}. "
+                "Run once without --no-learn to generate it."
+            )
 
         if bool(args.best_overlays_only):
             if cache_loaded is None:
@@ -2128,13 +2186,22 @@ def main():
         learning_rates = [5e-3]
         bandwidths = [2, 7, 12, 16]
         use_log_density = True
+        lambda_sweep = [0.0, 0.01, 0.1]
+        boundary_support_mode = "convex_hull"
 
         if cache_loaded is not None:
             try:
+                ver = int(cache_loaded.get("version", 0)) if isinstance(cache_loaded, dict) else 0
                 cfg0 = cache_loaded.get("config", {})
                 cached_bandwidths = list(cfg0.get("bandwidths", []))
                 cached_lrs = list(cfg0.get("learning_rates", []))
                 cached_use_log = bool(cfg0.get("use_log_density", True))
+                cached_support_mode = str(cfg0.get("boundary_support_mode", "")).strip().lower()
+                if cached_support_mode != str(boundary_support_mode).lower():
+                    raise SystemExit(
+                        "Cache/config mismatch: boundary support mode differs. "
+                        "Delete the cache file and re-run to regenerate boundary points."
+                    )
                 if [float(x) for x in cached_bandwidths] != [float(x) for x in bandwidths]:
                     raise SystemExit(
                         "Cache/config mismatch: bandwidths differ. "
@@ -2150,6 +2217,17 @@ def main():
                         "Cache/config mismatch: use_log_density differs. "
                         "Delete the cache file or re-run training with matching settings."
                     )
+
+                # Ensure per-lambda containers exist (newer caches); otherwise, upgrade in-memory.
+                pnn_block = cache_loaded.get("pnn", {})
+                if isinstance(pnn_block, dict):
+                    if "runs_by_lambda" not in pnn_block:
+                        pnn_block["runs_by_lambda"] = {"0.0": pnn_block.get("runs", [])}
+                    if "selected_by_lambda" not in pnn_block:
+                        pnn_block["selected_by_lambda"] = {"0.0": pnn_block.get("selected", [])}
+                    if "lambdas" not in pnn_block:
+                        pnn_block["lambdas"] = [0.0]
+                    cache_loaded["pnn"] = pnn_block
             except Exception as e:
                 raise SystemExit(f"Failed to validate cache file {cache_path}: {e}")
 
@@ -2164,8 +2242,12 @@ def main():
             samples_xy = mixture.sample_points_weighted(100, with_pdf=False)
             # Split train/validation so we can evaluate without ground truth (data-only metric).
             train_xy, val_xy = split_train_validation(samples_xy, val_fraction=0.2, seed=mixture_idx + 1)
-            # Optional boundary points set (shell outside plot rectangle)
-            boundary_pts = sample_boundary_points_outside_plot(plotter, alpha=0.1, k=max(20, int(0.3 * len(train_xy))))
+            # Optional boundary points set: sample outside convex hull of all sampled points.
+            boundary_pts = sample_boundary_points_outside_convex_hull(
+                np.vstack([np.asarray(train_xy, dtype=float), np.asarray(val_xy, dtype=float)]),
+                alpha=0.1,
+                k=max(20, int(0.3 * len(train_xy))),
+            )
 
         # We will generate an explicit figure that compares lambda_boundary=0 vs >0 at the end
         # of the sweep, selecting the configuration that is best by validation NLL.
@@ -2173,6 +2255,9 @@ def main():
         def _h_tag(h: float) -> str:
             # Safe for filenames
             return f"{float(h):.2f}".replace(".", "p")
+
+        def _lam_tag(lam: float) -> str:
+            return f"{float(lam):g}".replace("-", "m").replace(".", "p")
 
         arch_labels_all = [arch_label(cfg) for cfg in pnn_architectures]
 
@@ -2189,18 +2274,22 @@ def main():
         kde_val_nll_by_h: list[float] = []
         per_arch_val_ll_by_h: list[list[float]] = [[] for _ in range(n_arch_total)]
         per_arch_val_nll_by_h: list[list[float]] = [[] for _ in range(n_arch_total)]
+        # NEW: keep *all* 10 ValNLLs per (arch, h1) so we can plot mean±std.
+        # per_arch_val_nlls_by_h[cfg_idx][i_h] -> list of iteration ValNLL values
+        per_arch_val_nlls_by_h: list[list[list[float]]] = [[[] for _ in range(len(bandwidths))] for _ in range(n_arch_total)]
 
         # Cache container (written at end of mixture).
         pnn_cache_payload = None
         if cache_loaded is None:
             _safe_mkdir(_pnn_cache_dir())
             pnn_cache_payload = {
-                "version": 1,
+                "version": 2,
                 "mixture": int(mixture_idx + 1),
                 "config": {
                     "bandwidths": [float(h) for h in bandwidths],
                     "learning_rates": [float(lr) for lr in learning_rates],
                     "use_log_density": bool(use_log_density),
+                    "boundary_support_mode": str(boundary_support_mode),
                     "architectures": copy.deepcopy(pnn_architectures),
                 },
                 "data": {
@@ -2210,8 +2299,19 @@ def main():
                 },
                 "kde": {},
                 "pnn": {
+                    # Legacy lambda=0 fields (still used by most plotting code).
                     "runs": [[[] for _ in range(len(bandwidths))] for _ in range(n_arch_total)],
                     "selected": [[None for _ in range(len(bandwidths))] for _ in range(n_arch_total)],
+                    # New per-lambda containers for full sweep.
+                    "lambdas": [float(l) for l in lambda_sweep],
+                    "runs_by_lambda": {
+                        str(float(lam)): [[[] for _ in range(len(bandwidths))] for _ in range(n_arch_total)]
+                        for lam in lambda_sweep
+                    },
+                    "selected_by_lambda": {
+                        str(float(lam)): [[None for _ in range(len(bandwidths))] for _ in range(n_arch_total)]
+                        for lam in lambda_sweep
+                    },
                 },
                 "boundary_penalty_demo": None,
             }
@@ -2225,9 +2325,37 @@ def main():
                 kde_val_nll_by_h = list(cache_loaded.get("kde", {}).get("val_avg_nll", []))
                 per_arch_val_ll_by_h = cache_loaded["pnn"]["per_arch_val_ll_by_h"]
                 per_arch_val_nll_by_h = cache_loaded["pnn"]["per_arch_val_nll_by_h"]
+                # Optional: newer caches include the full ValNLL per-iteration lists.
+                per_arch_val_nlls_by_h = cache_loaded["pnn"].get("per_arch_val_nlls_by_h", per_arch_val_nlls_by_h)
             except Exception:
                 # Backward compatibility: cache might not have these fields yet.
                 pass
+
+            # If we are allowed to learn, we will extend this cache in-place (train missing lambdas)
+            # and then re-save it at the end.
+            if not bool(args.no_learn):
+                pnn_cache_payload = cache_loaded
+                try:
+                    pnn_block = pnn_cache_payload.get("pnn", {})
+                    if "runs_by_lambda" not in pnn_block:
+                        pnn_block["runs_by_lambda"] = {"0.0": pnn_block.get("runs", [])}
+                    if "selected_by_lambda" not in pnn_block:
+                        pnn_block["selected_by_lambda"] = {"0.0": pnn_block.get("selected", [])}
+                    if "lambdas" not in pnn_block:
+                        pnn_block["lambdas"] = [0.0]
+                    for lam in lambda_sweep:
+                        k = str(float(lam))
+                        if k not in pnn_block["runs_by_lambda"]:
+                            pnn_block["runs_by_lambda"][k] = [[[] for _ in range(len(bandwidths))] for _ in range(n_arch_total)]
+                        if k not in pnn_block["selected_by_lambda"]:
+                            pnn_block["selected_by_lambda"][k] = [[None for _ in range(len(bandwidths))] for _ in range(n_arch_total)]
+                    # Keep legacy config fields coherent.
+                    cfg = pnn_cache_payload.get("config", {})
+                    cfg["boundary_support_mode"] = str(boundary_support_mode)
+                    pnn_cache_payload["config"] = cfg
+                    pnn_cache_payload["pnn"] = pnn_block
+                except Exception:
+                    pass
 
         # Fast path: generate only the best-over-h1 overlays and skip all other figures.
         if bool(args.best_overlays_only):
@@ -2250,6 +2378,8 @@ def main():
             print(f"Saved best-over-h1 overlays figure: {out_path}")
             continue
 
+        lambdas_to_process = [float(l) for l in lambda_sweep] if (not bool(args.no_learn)) else [0.0]
+
         for i_h, bandwidth in enumerate(bandwidths):
             # Precompute KDE on grid once per bandwidth (same across architectures).
             kde_estimator = ParzenWindowEstimator(train_xy, window_size=float(bandwidth))
@@ -2270,7 +2400,7 @@ def main():
                 f"KDE EvalMSE={mse_kde:.6e}, ValAvgLogLik={ll_kde_val:.6e} (ValAvgNLL={nll_kde_val:.6e})"
             )
 
-            # Track per-architecture results for this bandwidth
+            # Track per-architecture results for this bandwidth (λ=0 only, for existing figures).
             arch_labels: list[str] = []
             per_arch_eval_mse_hist: list[list[float]] = []
             per_arch_train_loss_hist: list[list[float]] = []
@@ -2282,187 +2412,210 @@ def main():
             for cfg_idx, cfg in enumerate(pnn_architectures):
                 label = arch_label(cfg)
                 arch_labels.append(label)
-                log_filename = f"logs/mixture{mixture_idx+1}_{label}_h1_{_h_tag(bandwidth)}.txt"
-                best_model = None
-                best_val_nll = float("inf")
-                best_val_ll = -float("inf")
-                best_final_kde_mse = float("inf")
-                best_hist: list[float] = []
-                best_train_hist: list[float] = []
-                best_lr: float | None = None
 
-                # Repeat training for statistical stability: run multiple iterations per (h1,arch).
-                num_iterations = 10
-                iter_mse_hists: list[list[float]] = []
-                iter_final_kde_mses: list[float] = []
-                iter_final_truth_mses: list[float] = []
-                iter_val_nlls: list[float] = []
-                iter_models: list[ParzenNeuralNetwork] = []
-                iter_train_hists: list[list[float]] = []
+                # Train/cache a full lambda sweep, but keep plotting/summary based on lambda=0.
+                for lam in lambdas_to_process:
+                    lam_key = str(float(lam))
+                    log_filename = f"logs/mixture{mixture_idx+1}_{label}_lam_{_lam_tag(lam)}_h1_{_h_tag(bandwidth)}.txt"
 
-                if cache_loaded is not None:
-                    # Load all cached runs for this (arch, bandwidth) and pick best by val NLL.
-                    runs_here = cache_loaded.get("pnn", {}).get("runs", [[[]]])
-                    runs_list = runs_here[cfg_idx][i_h] if cfg_idx < len(runs_here) and i_h < len(runs_here[cfg_idx]) else []
-                    if len(runs_list) == 0:
-                        raise SystemExit(f"Cache missing runs for mixture {mixture_idx+1}, {label}, h1={float(bandwidth):.3g}")
-                    for run in runs_list:
-                        meta = run.get("meta", {})
-                        pnn = _pnn_instantiate_from_cache(meta)
-                        sd = run.get("state_dict")
-                        if sd is None:
-                            raise SystemExit("Cache entry missing state_dict")
-                        pnn.load_state_dict(sd)
-                        iter_models.append(pnn)
-                        iter_mse_hists.append(list(run.get("eval_mse_hist", [])))
-                        iter_train_hists.append(list(run.get("train_loss_hist", [])))
-                        iter_final_kde_mses.append(float(run.get("final_kde_mse", float("nan"))))
-                        iter_final_truth_mses.append(float(run.get("final_truth_mse", float("nan"))))
-                        iter_val_nlls.append(float(run.get("val_nll", float("inf"))))
-                else:
-                    for it in range(num_iterations):
-                        for lr in learning_rates:
-                            with open(log_filename, "a") as log_file:
-                                pnn = ParzenNeuralNetwork(
-                                    hidden_layers=cfg["hidden_layers"],
-                                    output_activation=cfg["out"],
-                                    output_scale=cfg.get("A", "auto"),
-                                    density_parameterization="log_density" if use_log_density else "density",
-                                )
-                                _final_loss, mse_hist, train_hist = pnn.train_network(
-                                    train_xy,
-                                    plotter,
-                                    bandwidth=float(bandwidth),
-                                    # Keep oracle EvalMSE curves for plotting, but do NOT checkpoint/select by them.
-                                    mixture=mixture,
-                                    log_file=log_file,
-                                    learning_rate=float(lr),
-                                    epochs=3500,
-                                    boundary_points=boundary_pts,
-                                    lambda_boundary=0.0,
-                                    verbose=True,
-                                    loss_mode="mse" if use_log_density else "relative",
-                                    weight_decay=0.0,
-                                    num_uniform_points=len(train_xy) if use_log_density else 0,
-                                    checkpoint_metric="train_loss",
-                                )
+                    # Repeat training for statistical stability: run multiple iterations per (h1,arch,lambda).
+                    num_iterations = 10
+                    iter_mse_hists: list[list[float]] = []
+                    iter_final_kde_mses: list[float] = []
+                    iter_final_truth_mses: list[float] = []
+                    iter_val_nlls: list[float] = []
+                    iter_val_lls: list[float] = []
+                    iter_models: list[ParzenNeuralNetwork] = []
+                    iter_train_hists: list[list[float]] = []
 
-                            # Data-only selection metric: validation NLL on held-out samples.
-                            ll_pnn_val = average_log_likelihood_pnn_on_domain(pnn, val_xy, plotter)
-                            nll_pnn_val = _nll_from_avg_loglik(ll_pnn_val)
+                    # Load cached runs if available; otherwise train and append to cache.
+                    runs_list = []
+                    if cache_loaded is not None:
+                        pnn_block = cache_loaded.get("pnn", {})
+                        runs_by_lambda = pnn_block.get("runs_by_lambda", {}) if isinstance(pnn_block, dict) else {}
+                        runs_here = runs_by_lambda.get(lam_key)
+                        if runs_here is None and float(lam) == 0.0:
+                            runs_here = pnn_block.get("runs") if isinstance(pnn_block, dict) else None
+                        if runs_here is not None:
+                            try:
+                                runs_list = runs_here[cfg_idx][i_h]
+                            except Exception:
+                                runs_list = []
 
-                            # Data-only diagnostic: grid MSE vs the KDE surface (both from data).
-                            est_pdf_tmp = pnn.estimate_pdf(plotter)
-                            final_kde_mse = float(np.mean((est_pdf_tmp - estimated_pdf_kde) ** 2))
-
-                            # Oracle diagnostic (kept for reporting/plots only; NOT used for selection).
-                            final_truth_mse = float(np.mean((est_pdf_tmp - real_pdf) ** 2))
-
-                            print(
-                                f"Mixture {mixture_idx+1}, h1={bandwidth:.3f}, {label}, iter={it}, LR={lr}: "
-                                f"ValAvgNLL={nll_pnn_val:.6e}, GridMSEvsKDE={final_kde_mse:.6e}, GridMSEvsTruth={final_truth_mse:.6e}"
-                            )
-
-                            # Collect iteration diagnostics
-                            iter_mse_hists.append(list(mse_hist))
-                            iter_final_kde_mses.append(final_kde_mse)
-                            iter_final_truth_mses.append(final_truth_mse)
-                            iter_val_nlls.append(float(nll_pnn_val))
+                    if len(runs_list) > 0:
+                        # Reconstruct models from cached state_dicts.
+                        for run in runs_list:
+                            meta = run.get("meta", {})
+                            pnn = _pnn_instantiate_from_cache(meta)
+                            sd = run.get("state_dict")
+                            if sd is None:
+                                raise SystemExit("Cache entry missing state_dict")
+                            pnn.load_state_dict(sd)
                             iter_models.append(pnn)
-                            iter_train_hists.append(list(train_hist))
+                            iter_mse_hists.append(list(run.get("eval_mse_hist", [])))
+                            iter_train_hists.append(list(run.get("train_loss_hist", [])))
+                            iter_final_kde_mses.append(float(run.get("final_kde_mse", float("nan"))))
+                            iter_final_truth_mses.append(float(run.get("final_truth_mse", float("nan"))))
+                            iter_val_nlls.append(float(run.get("val_nll", float("inf"))))
+                            iter_val_lls.append(float(run.get("val_ll", -float("inf"))))
+                    else:
+                        # Train new runs for this lambda (unless --no-learn, in which case lambdas_to_process=[0]).
+                        for it in range(num_iterations):
+                            for lr in learning_rates:
+                                with open(log_filename, "a", encoding="utf-8") as log_file:
+                                    pnn = ParzenNeuralNetwork(
+                                        hidden_layers=cfg["hidden_layers"],
+                                        output_activation=cfg["out"],
+                                        output_scale=cfg.get("A", "auto"),
+                                        density_parameterization="log_density" if use_log_density else "density",
+                                    )
+                                    _final_loss, mse_hist, train_hist = pnn.train_network(
+                                        train_xy,
+                                        plotter,
+                                        bandwidth=float(bandwidth),
+                                        # Keep oracle EvalMSE curves for plotting, but do NOT checkpoint/select by them.
+                                        mixture=mixture,
+                                        log_file=log_file,
+                                        learning_rate=float(lr),
+                                        epochs=3500,
+                                        boundary_points=boundary_pts,
+                                        lambda_boundary=float(lam),
+                                        verbose=True,
+                                        loss_mode="mse" if use_log_density else "relative",
+                                        weight_decay=0.0,
+                                        num_uniform_points=len(train_xy) if use_log_density else 0,
+                                        checkpoint_metric="train_loss",
+                                    )
 
-                            # Cache this run (all learned matrices + training histories).
-                            if pnn_cache_payload is not None:
-                                run_entry = {
-                                    "meta": {
-                                        "hidden_layers": list(cfg["hidden_layers"]),
-                                        "output_activation": str(cfg["out"]),
-                                        "init_output_scale": cfg.get("A", "auto"),
-                                        "trained_output_scale": (None if pnn.output_scale is None else float(pnn.output_scale)),
-                                        "density_parameterization": "log_density" if use_log_density else "density",
-                                    },
-                                    "iter": int(it),
-                                    "lr": float(lr),
-                                    "state_dict": _tensor_to_cpu_state_dict(pnn.state_dict()),
-                                    "eval_mse_hist": list(mse_hist),
-                                    "train_loss_hist": list(train_hist),
-                                    "val_nll": float(nll_pnn_val),
-                                    "val_ll": float(ll_pnn_val),
-                                    "final_kde_mse": float(final_kde_mse),
-                                    "final_truth_mse": float(final_truth_mse),
-                                }
-                                pnn_cache_payload["pnn"]["runs"][cfg_idx][i_h].append(run_entry)
+                                # Data-only selection metric: validation NLL on held-out samples.
+                                ll_pnn_val = average_log_likelihood_pnn_on_domain(pnn, val_xy, plotter)
+                                nll_pnn_val = _nll_from_avg_loglik(ll_pnn_val)
 
-                # Choose the best iteration by minimum validation NLL (data-only selection).
-                if len(iter_val_nlls) == 0:
-                    raise RuntimeError("No PNN iterations produced valid val NLLs")
-                best_idx = int(np.nanargmin(np.asarray(iter_val_nlls, dtype=float)))
-                best_model = iter_models[best_idx]
-                best_val_nll = float(iter_val_nlls[best_idx])
-                best_val_ll = float(-best_val_nll)
-                best_final_kde_mse = float(iter_final_kde_mses[best_idx])
-                best_hist = list(iter_mse_hists[best_idx])
-                best_train_hist = list(iter_train_hists[best_idx])
-                best_lr = float(learning_rates[0]) if len(learning_rates) > 0 else float('nan')
+                                # Data-only diagnostic: grid MSE vs the KDE surface (both from data).
+                                est_pdf_tmp = pnn.estimate_pdf(plotter)
+                                final_kde_mse = float(np.mean((est_pdf_tmp - estimated_pdf_kde) ** 2))
 
-                # Store per-iteration collections for plotting aggregates later
-                if cache_loaded is None:
-                    per_arch_eval_mse_by_h[cfg_idx].append(list(iter_mse_hists))
-                    per_arch_final_mse_by_h[cfg_idx].append(list(iter_final_truth_mses))
+                                # Oracle diagnostic (kept for reporting/plots only; NOT used for selection).
+                                final_truth_mse = float(np.mean((est_pdf_tmp - real_pdf) ** 2))
 
-                # (Note: validation NLL already recorded above for this bandwidth/arch.)
+                                print(
+                                    f"Mixture {mixture_idx+1}, h1={bandwidth:.3f}, lam={lam:g}, {label}, iter={it}, LR={lr}: "
+                                    f"ValAvgNLL={nll_pnn_val:.6e}, GridMSEvsKDE={final_kde_mse:.6e}, GridMSEvsTruth={final_truth_mse:.6e}"
+                                )
 
-                assert best_model is not None
-                per_arch_best_lr.append(float(best_lr) if best_lr is not None else float("nan"))
-                per_arch_best_val_nll.append(float(best_val_nll))
-                est_pdf = best_model.estimate_pdf(plotter)
-                per_arch_est_pdf.append(est_pdf)
-                per_arch_eval_mse_hist.append(best_hist)
-                per_arch_train_loss_hist.append(best_train_hist)
-                per_arch_final_mse.append(float(np.mean((est_pdf - real_pdf) ** 2)))
+                                iter_mse_hists.append(list(mse_hist))
+                                iter_final_kde_mses.append(final_kde_mse)
+                                iter_final_truth_mses.append(final_truth_mse)
+                                iter_val_nlls.append(float(nll_pnn_val))
+                                iter_val_lls.append(float(ll_pnn_val))
+                                iter_models.append(pnn)
+                                iter_train_hists.append(list(train_hist))
 
-                # Data-only validation log-likelihood for the selected (best-by-ValNLL) model.
-                ll_pnn_val = float(best_val_ll)
-                nll_pnn_val = float(best_val_nll)
-                if cache_loaded is None:
-                    per_arch_val_ll_by_h[cfg_idx].append(float(ll_pnn_val))
-                    per_arch_val_nll_by_h[cfg_idx].append(float(nll_pnn_val))
-                print(
-                    f"Mixture {mixture_idx+1}, h1={bandwidth:.3f}, {label}: "
-                    f"ValAvgLogLik={ll_pnn_val:.6e} (ValAvgNLL={nll_pnn_val:.6e})"
-                )
+                                # Cache this run.
+                                if pnn_cache_payload is not None:
+                                    run_entry = {
+                                        "meta": {
+                                            "hidden_layers": list(cfg["hidden_layers"]),
+                                            "output_activation": str(cfg["out"]),
+                                            "init_output_scale": cfg.get("A", "auto"),
+                                            "trained_output_scale": (None if pnn.output_scale is None else float(pnn.output_scale)),
+                                            "density_parameterization": "log_density" if use_log_density else "density",
+                                        },
+                                        "iter": int(it),
+                                        "lr": float(lr),
+                                        "lambda_boundary": float(lam),
+                                        "state_dict": _tensor_to_cpu_state_dict(pnn.state_dict()),
+                                        "eval_mse_hist": list(mse_hist),
+                                        "train_loss_hist": list(train_hist),
+                                        "val_nll": float(nll_pnn_val),
+                                        "val_ll": float(ll_pnn_val),
+                                        "final_kde_mse": float(final_kde_mse),
+                                        "final_truth_mse": float(final_truth_mse),
+                                    }
+                                    try:
+                                        pnn_cache_payload["pnn"]["runs_by_lambda"][lam_key][cfg_idx][i_h].append(run_entry)
+                                        if float(lam) == 0.0:
+                                            # Keep legacy lambda=0 path in sync.
+                                            pnn_cache_payload["pnn"]["runs"][cfg_idx][i_h].append(run_entry)
+                                    except Exception:
+                                        pass
 
-                if pnn_cache_payload is not None:
-                    # Record selected run for fast reconstruction in --no-learn mode.
-                    pnn_cache_payload["pnn"]["selected"][cfg_idx][i_h] = {
-                        "best_run_index": int(best_idx),
-                        "val_nll": float(best_val_nll),
-                        "val_ll": float(best_val_ll),
-                        "final_kde_mse": float(best_final_kde_mse),
-                        "final_truth_mse": float(iter_final_truth_mses[best_idx]) if best_idx < len(iter_final_truth_mses) else float("nan"),
-                        "eval_mse_hist": list(iter_mse_hists[best_idx]) if best_idx < len(iter_mse_hists) else [],
-                        "train_loss_hist": list(iter_train_hists[best_idx]) if best_idx < len(iter_train_hists) else [],
-                        "lr": float(best_lr) if best_lr is not None else float("nan"),
-                    }
+                    # Choose the best iteration by minimum validation NLL.
+                    if len(iter_val_nlls) == 0:
+                        raise RuntimeError("No PNN iterations produced valid val NLLs")
+                    best_idx = int(np.nanargmin(np.asarray(iter_val_nlls, dtype=float)))
+                    best_val_nll = float(iter_val_nlls[best_idx])
+                    best_val_ll = float(iter_val_lls[best_idx]) if best_idx < len(iter_val_lls) else float(-best_val_nll)
+                    best_final_kde_mse = float(iter_final_kde_mses[best_idx]) if best_idx < len(iter_final_kde_mses) else float("nan")
+                    best_lr = float(learning_rates[0]) if len(learning_rates) > 0 else float('nan')
 
-                # Append a compact, machine-parseable summary line to the same log file.
-                # Skip in --no-learn mode to avoid mutating logs while only re-plotting.
-                if cache_loaded is None:
-                    try:
-                        with open(log_filename, "a", encoding="utf-8") as log_file:
-                            log_file.write(
-                                "SUMMARY: "
-                                f"h1={float(bandwidth):.6g}, "
-                                f"label={label}, "
-                                f"final_grid_mse_vs_truth={float(per_arch_final_mse[-1]):.6e}, "
-                                f"final_grid_mse_vs_kde={float(best_final_kde_mse):.6e}, "
-                                f"val_avg_nll={float(nll_pnn_val):.6e}\n"
-                            )
-                    except OSError:
-                        pass
+                    if pnn_cache_payload is not None:
+                        try:
+                            pnn_cache_payload["pnn"]["selected_by_lambda"][lam_key][cfg_idx][i_h] = {
+                                "best_run_index": int(best_idx),
+                                "val_nll": float(best_val_nll),
+                                "val_ll": float(best_val_ll),
+                                "final_kde_mse": float(best_final_kde_mse),
+                                "final_truth_mse": float(iter_final_truth_mses[best_idx]) if best_idx < len(iter_final_truth_mses) else float("nan"),
+                                "eval_mse_hist": list(iter_mse_hists[best_idx]) if best_idx < len(iter_mse_hists) else [],
+                                "train_loss_hist": list(iter_train_hists[best_idx]) if best_idx < len(iter_train_hists) else [],
+                                "lr": float(best_lr),
+                                "lambda_boundary": float(lam),
+                            }
+                            if float(lam) == 0.0:
+                                pnn_cache_payload["pnn"]["selected"][cfg_idx][i_h] = dict(pnn_cache_payload["pnn"]["selected_by_lambda"][lam_key][cfg_idx][i_h])
+                        except Exception:
+                            pass
 
-                # Persist results across bandwidths for consolidated learning plot
-                # (deprecated single-run appends removed — aggregated lists already appended above)
+                    # For lambda=0 only: feed existing figures/summary arrays.
+                    if float(lam) == 0.0:
+                        # Keep full per-iteration ValNLL list for the final mean±std plot.
+                        try:
+                            per_arch_val_nlls_by_h[cfg_idx][i_h] = [float(x) for x in iter_val_nlls]
+                        except Exception:
+                            pass
+
+                        best_model = iter_models[best_idx]
+                        best_hist = list(iter_mse_hists[best_idx]) if best_idx < len(iter_mse_hists) else []
+                        best_train_hist = list(iter_train_hists[best_idx]) if best_idx < len(iter_train_hists) else []
+
+                        if cache_loaded is None:
+                            per_arch_eval_mse_by_h[cfg_idx].append(list(iter_mse_hists))
+                            per_arch_final_mse_by_h[cfg_idx].append(list(iter_final_truth_mses))
+
+                        per_arch_best_lr.append(float(best_lr))
+                        per_arch_best_val_nll.append(float(best_val_nll))
+
+                        est_pdf = best_model.estimate_pdf(plotter)
+                        per_arch_est_pdf.append(est_pdf)
+                        per_arch_eval_mse_hist.append(best_hist)
+                        per_arch_train_loss_hist.append(best_train_hist)
+                        per_arch_final_mse.append(float(np.mean((est_pdf - real_pdf) ** 2)))
+
+                        if cache_loaded is None:
+                            per_arch_val_ll_by_h[cfg_idx].append(float(best_val_ll))
+                            per_arch_val_nll_by_h[cfg_idx].append(float(best_val_nll))
+
+                        print(
+                            f"Mixture {mixture_idx+1}, h1={bandwidth:.3f}, {label}: "
+                            f"ValAvgLogLik={best_val_ll:.6e} (ValAvgNLL={best_val_nll:.6e})"
+                        )
+
+                        # Append a compact summary line for lambda=0 logs only.
+                        if cache_loaded is None:
+                            try:
+                                with open(log_filename, "a", encoding="utf-8") as log_file:
+                                    log_file.write(
+                                        "SUMMARY: "
+                                        f"h1={float(bandwidth):.6g}, "
+                                        f"label={label}, "
+                                        f"lambda={float(lam):.6g}, "
+                                        f"final_grid_mse_vs_truth={float(per_arch_final_mse[-1]):.6e}, "
+                                        f"final_grid_mse_vs_kde={float(best_final_kde_mse):.6e}, "
+                                        f"val_avg_nll={float(best_val_nll):.6e}\n"
+                                    )
+                            except OSError:
+                                pass
 
             # --------------------------
             # Figure 1: Overlays for this bandwidth (columns = architectures, 2 rows)
@@ -2654,6 +2807,7 @@ def main():
             pnn_cache_payload["pnn"]["per_arch_final_mse_by_h"] = per_arch_final_mse_by_h
             pnn_cache_payload["pnn"]["per_arch_val_ll_by_h"] = per_arch_val_ll_by_h
             pnn_cache_payload["pnn"]["per_arch_val_nll_by_h"] = per_arch_val_nll_by_h
+            pnn_cache_payload["pnn"]["per_arch_val_nlls_by_h"] = per_arch_val_nlls_by_h
             try:
                 torch.save(pnn_cache_payload, cache_path)
                 print(f"Saved PNN sweep cache: {cache_path}")
@@ -2912,23 +3066,86 @@ def main():
 
         # --------------------------
         # NEW: Data-only cross-validation plot (validation NLL) across bandwidths.
+        # Use all 10 trained PNN iterations: plot grouped bars with mean±std.
+        # KDE is included as a bar series too (std = 0).
         fig_cv = plt.figure(figsize=(12, 6))
         ax_cv = fig_cv.add_subplot(111)
-        H = np.array([float(h) for h in bandwidths], dtype=float)
-        ax_cv.plot(H, np.asarray(kde_val_nll_by_h, dtype=float), marker='o', color='tab:gray', label='KDE Val NLL')
+
+        h1_vals = [float(h) for h in bandwidths]
+        x = np.arange(len(h1_vals), dtype=float)
+
+        # Series: KDE + each PNN architecture
+        series_labels = ["KDE"] + [arch_label(cfg) for cfg in pnn_architectures]
+        n_series = len(series_labels)
+        width = 0.84 / max(1, n_series)
+        offsets = (np.arange(n_series, dtype=float) - (n_series - 1) / 2.0) * width
+
+        # KDE bars
+        kde_means = np.asarray(kde_val_nll_by_h, dtype=float)
+        kde_stds = np.zeros_like(kde_means)
+        ax_cv.bar(
+            x + offsets[0],
+            kde_means,
+            yerr=kde_stds,
+            width=0.95 * width,
+            capsize=4,
+            alpha=0.80,
+            color='tab:gray',
+            label="KDE (single run)",
+        )
+
+        # PNN bars: mean±std across iterations
+        n_arch = len(pnn_architectures)
+        try:
+            colors = [plt.get_cmap('tab10')(i % 10) for i in range(n_arch)]
+        except Exception:
+            colors = [None] * n_arch
+
         for cfg_idx, cfg in enumerate(pnn_architectures):
             label = arch_label(cfg)
-            ax_cv.plot(
-                H,
-                np.asarray(per_arch_val_nll_by_h[cfg_idx], dtype=float),
-                marker='o',
-                linewidth=2.0,
-                label=f"PNN Val NLL: {label}",
+            means: list[float] = []
+            stds: list[float] = []
+            for i_h in range(len(h1_vals)):
+                vals: list[float]
+                try:
+                    vals = list(per_arch_val_nlls_by_h[cfg_idx][i_h])
+                except Exception:
+                    vals = []
+
+                # Backward compatibility: if per-iteration list is missing, fall back to the selected best run.
+                if len(vals) == 0:
+                    try:
+                        vals = [float(per_arch_val_nll_by_h[cfg_idx][i_h])]
+                    except Exception:
+                        vals = []
+
+                arr = np.asarray(vals, dtype=float)
+                arr = arr[np.isfinite(arr)]
+                if arr.size == 0:
+                    means.append(float('nan'))
+                    stds.append(0.0)
+                else:
+                    means.append(float(np.mean(arr)))
+                    stds.append(float(np.std(arr)))
+
+            series_pos = 1 + cfg_idx
+            ax_cv.bar(
+                x + offsets[series_pos],
+                np.asarray(means, dtype=float),
+                yerr=np.asarray(stds, dtype=float),
+                width=0.95 * width,
+                capsize=4,
+                alpha=0.85,
+                color=colors[cfg_idx] if cfg_idx < len(colors) else None,
+                label=f"PNN mean±std (10 runs): {label}",
             )
-        ax_cv.set_title(f"Validation NLL (held-out split) vs h_1 — mixture {mixture_idx+1}")
+
+        ax_cv.set_xticks(x)
+        ax_cv.set_xticklabels([f"{h:g}" for h in h1_vals])
+        ax_cv.set_title(f"Validation NLL vs h_1 — mixture {mixture_idx+1} (bars: mean±std over 10 PNN runs)")
         ax_cv.set_xlabel("h_1")
         ax_cv.set_ylabel("Avg NLL on held-out points (lower is better)")
-        ax_cv.grid(True, alpha=0.3)
+        ax_cv.grid(True, axis='y', alpha=0.3)
         ax_cv.legend(fontsize='small')
         cv_filename = f"figures/validation_nll_bandwidth_sweep_mixture{mixture_idx+1}.jpeg"
         plt.tight_layout()
@@ -2937,12 +3154,14 @@ def main():
         print(f"Saved validation NLL figure: {cv_filename}")
 
         # --------------------------
-        # NEW: Boundary penalty comparison figure (lambda=0 vs lambda>0) for the best-by-NLL config.
-        # Select best (min) validation NLL across all (arch, bandwidth).
+        # Boundary penalty comparison figure (λ=0, 0.01, 0.1) for the best-by-NLL (λ=0) config.
+        # IMPORTANT: do not retrain here; reconstruct from the sweep cache.
         boundary_demo_payload = None
         if cache_loaded is not None:
             boundary_demo_payload = cache_loaded.get("boundary_penalty_demo")
+
         best_cfg_idx = None
+        best_i_h = None
         best_h1 = None
         best_nll = float("inf")
         for cfg_idx in range(n_arch_total):
@@ -2951,121 +3170,90 @@ def main():
                 if np.isfinite(nll) and float(nll) < best_nll:
                     best_nll = float(nll)
                     best_cfg_idx = int(cfg_idx)
+                    best_i_h = int(i_h)
                     best_h1 = float(bandwidths[i_h])
 
-        if best_cfg_idx is not None and best_h1 is not None:
+        if best_cfg_idx is not None and best_i_h is not None and best_h1 is not None:
             cfg = pnn_architectures[best_cfg_idx]
             label = arch_label(cfg)
-            lam0 = 0.0
-            lam1 = 1e-2
-            demo_epochs = 2000
-            demo_lr = float(learning_rates[0])
+            demo_lambdas = [0.0, 0.01, 0.1]
 
-            if bool(args.no_learn) and not boundary_demo_payload:
+            if bool(args.no_learn) and (cache_loaded is None):
                 print(
-                    f"Boundary penalty comparison skipped in --no-learn mode (no cached demo found) "
+                    f"Boundary penalty comparison skipped in --no-learn mode (no cache loaded) "
                     f"for mixture {mixture_idx+1}."
                 )
             else:
+                cache_for_demo = cache_loaded if cache_loaded is not None else pnn_cache_payload
+                if cache_for_demo is None:
+                    cache_for_demo = cache_loaded
+
                 print(
                     f"Boundary penalty comparison (mixture {mixture_idx+1}): "
-                    f"best-by-NLL: h1={best_h1:.3f}, arch={label}; lambda={lam0} vs {lam1}"
+                    f"best-by-NLL (λ=0): h1={best_h1:.3f}, arch={label}; demo lambdas={demo_lambdas}"
                 )
 
                 models: dict[float, ParzenNeuralNetwork] = {}
                 metrics: dict[float, dict[str, float]] = {}
-                demo_model_meta = {
-                    "hidden_layers": list(cfg["hidden_layers"]),
-                    "output_activation": str(cfg["out"]),
-                    "init_output_scale": cfg.get("A", "auto"),
-                    "density_parameterization": "log_density" if use_log_density else "density",
-                }
 
-                if bool(args.no_learn) and boundary_demo_payload:
-                    # Reconstruct demo models from cached matrices.
-                    try:
-                        models_blob = boundary_demo_payload.get("models", {})
-                        for lam_key in ("lambda_0", "lambda_1"):
-                            entry = models_blob.get(lam_key, {})
-                            lam = float(entry.get("lambda"))
-                            pnn_demo = _pnn_instantiate_from_cache({**demo_model_meta, "trained_output_scale": entry.get("trained_output_scale")})
-                            pnn_demo.load_state_dict(entry.get("state_dict"))
-                            models[lam] = pnn_demo
-                        metrics = {
-                            float(boundary_demo_payload["lambda_0"]["lambda"]): dict(boundary_demo_payload["lambda_0"]["metrics"]),
-                            float(boundary_demo_payload["lambda_1"]["lambda"]): dict(boundary_demo_payload["lambda_1"]["metrics"]),
-                        }
-                    except Exception as e:
-                        print(f"WARN: failed to load cached boundary demo; skipping: {e}")
-                        models = {}
-                        metrics = {}
-                else:
-                    for lam in (lam0, lam1):
-                        pnn_demo = ParzenNeuralNetwork(
-                            hidden_layers=cfg["hidden_layers"],
-                            output_activation=cfg["out"],
-                            output_scale=cfg.get("A", "auto"),
-                            density_parameterization="log_density" if use_log_density else "density",
-                        )
-                        _final_loss, _mse_hist, _train_hist = pnn_demo.train_network(
-                            train_xy,
-                            plotter,
-                            bandwidth=float(best_h1),
-                            mixture=None,
-                            log_file=None,
-                            learning_rate=demo_lr,
-                            epochs=demo_epochs,
-                            boundary_points=boundary_pts,
-                            lambda_boundary=float(lam),
-                            verbose=False,
-                            loss_mode="mse" if use_log_density else "relative",
-                            weight_decay=0.0,
-                            num_uniform_points=len(train_xy) if use_log_density else 0,
-                        )
-                        models[float(lam)] = pnn_demo
+                if cache_for_demo is not None:
+                    for lam in demo_lambdas:
+                        try:
+                            run_entry = _pnn_best_run_from_cache_for(
+                                cache_for_demo,
+                                cfg_idx=int(best_cfg_idx),
+                                i_h=int(best_i_h),
+                                lambda_boundary=float(lam),
+                            )
+                            meta = run_entry.get("meta", {})
+                            pnn_demo = _pnn_instantiate_from_cache(meta)
+                            sd = run_entry.get("state_dict")
+                            if sd is None:
+                                raise RuntimeError("Cache entry missing state_dict")
+                            pnn_demo.load_state_dict(sd)
+                            models[float(lam)] = pnn_demo
 
-                        boundary_mean = mean_unnormalized_density_on_points(pnn_demo, boundary_pts)
-                        val_ll = average_log_likelihood_pnn_on_domain(pnn_demo, val_xy, plotter)
-                        val_nll = _nll_from_avg_loglik(val_ll)
-                        metrics[float(lam)] = {
-                            "boundary_mean": float(boundary_mean),
-                            "val_ll": float(val_ll),
-                            "val_nll": float(val_nll),
-                        }
+                            # Metrics computed on the current fixed split.
+                            boundary_mean = mean_unnormalized_density_on_points(pnn_demo, boundary_pts)
+                            val_ll = average_log_likelihood_pnn_on_domain(pnn_demo, val_xy, plotter)
+                            val_nll = _nll_from_avg_loglik(val_ll)
+                            metrics[float(lam)] = {
+                                "boundary_mean": float(boundary_mean),
+                                "val_ll": float(val_ll),
+                                "val_nll": float(val_nll),
+                            }
+                        except Exception as e:
+                            print(f"WARN: missing cached runs for mixture {mixture_idx+1}, lam={lam:g}: {e}")
 
-                if float(lam0) in models and float(lam1) in models and float(lam0) in metrics and float(lam1) in metrics:
-                    # Plot: KDE vs True, and PNN lambda=0 vs True, PNN lambda>0 vs True.
+                if len(models) >= 2:
                     kde_for_demo = ParzenWindowEstimator(train_xy, window_size=float(best_h1))
                     kde_pdf = kde_for_demo.estimate_pdf(plotter)
                     true_pdf = mixture.get_mesh(plotter.pos)
-                    pnn0_pdf = models[lam0].estimate_pdf(plotter)
-                    pnn1_pdf = models[lam1].estimate_pdf(plotter)
 
-                    fig_b = plt.figure(figsize=(16, 9))
+                    n_panels = 1 + len(demo_lambdas)
+                    fig_b = plt.figure(figsize=(5.2 * n_panels, 8.0))
                     fig_b.suptitle(f"Boundary penalty comparison — mixture {mixture_idx+1}\n{label}, h_1={best_h1:.3f}")
 
-                    ax_kde = fig_b.add_subplot(1, 3, 1, projection='3d')
+                    ax_kde = fig_b.add_subplot(1, n_panels, 1, projection='3d')
                     ax_kde.plot_surface(plotter.X, plotter.Y, true_pdf, alpha=0.45, cmap='viridis')
                     ax_kde.plot_surface(plotter.X, plotter.Y, kde_pdf, alpha=0.45, cmap='cividis')
                     ax_kde.set_title("KDE vs True")
+                    ax_kde.set_xlabel("x")
+                    ax_kde.set_ylabel("y")
+                    ax_kde.set_zlabel("pdf")
 
-                    ax0 = fig_b.add_subplot(1, 3, 2, projection='3d')
-                    ax0.plot_surface(plotter.X, plotter.Y, true_pdf, alpha=0.45, cmap='viridis')
-                    ax0.plot_surface(plotter.X, plotter.Y, pnn0_pdf, alpha=0.45, cmap='plasma')
-                    m0 = metrics[lam0]
-                    ax0.set_title(
-                        f"PNN vs True (lambda={lam0:g})\nValNLL={m0['val_nll']:.3g}, boundaryMean={m0['boundary_mean']:.3g}"
-                    )
-
-                    ax1 = fig_b.add_subplot(1, 3, 3, projection='3d')
-                    ax1.plot_surface(plotter.X, plotter.Y, true_pdf, alpha=0.45, cmap='viridis')
-                    ax1.plot_surface(plotter.X, plotter.Y, pnn1_pdf, alpha=0.45, cmap='plasma')
-                    m1 = metrics[lam1]
-                    ax1.set_title(
-                        f"PNN vs True (lambda={lam1:g})\nValNLL={m1['val_nll']:.3g}, boundaryMean={m1['boundary_mean']:.3g}"
-                    )
-
-                    for ax in (ax_kde, ax0, ax1):
+                    for j, lam in enumerate(demo_lambdas, start=2):
+                        ax = fig_b.add_subplot(1, n_panels, j, projection='3d')
+                        ax.plot_surface(plotter.X, plotter.Y, true_pdf, alpha=0.45, cmap='viridis')
+                        if float(lam) in models:
+                            pdf = models[float(lam)].estimate_pdf(plotter)
+                            ax.plot_surface(plotter.X, plotter.Y, pdf, alpha=0.45, cmap='plasma')
+                            m = metrics.get(float(lam), {})
+                            ax.set_title(
+                                f"PNN vs True (λ={lam:g})\nValNLL={m.get('val_nll', float('nan')):.3g}, boundaryMean={m.get('boundary_mean', float('nan')):.3g}"
+                            )
+                        else:
+                            ax.set_title(f"PNN (λ={lam:g}) — missing")
                         ax.set_xlabel("x")
                         ax.set_ylabel("y")
                         ax.set_zlabel("pdf")
@@ -3079,22 +3267,13 @@ def main():
                     boundary_demo_payload = {
                         "h1": float(best_h1),
                         "label": str(label),
-                        "lambda_0": {"lambda": float(lam0), "metrics": dict(metrics[float(lam0)])},
-                        "lambda_1": {"lambda": float(lam1), "metrics": dict(metrics[float(lam1)])},
                         "figure": str(b_filename),
-                        "models": {
-                            "lambda_0": {
-                                "lambda": float(lam0),
-                                "trained_output_scale": (None if models[lam0].output_scale is None else float(models[lam0].output_scale)),
-                                "state_dict": _tensor_to_cpu_state_dict(models[lam0].state_dict()),
-                            },
-                            "lambda_1": {
-                                "lambda": float(lam1),
-                                "trained_output_scale": (None if models[lam1].output_scale is None else float(models[lam1].output_scale)),
-                                "state_dict": _tensor_to_cpu_state_dict(models[lam1].state_dict()),
-                            },
-                        },
                     }
+                    for idx, lam in enumerate(demo_lambdas):
+                        k = f"lambda_{idx}"
+                        if float(lam) in metrics:
+                            boundary_demo_payload[k] = {"lambda": float(lam), "metrics": dict(metrics[float(lam)])}
+
                     if pnn_cache_payload is not None:
                         pnn_cache_payload["boundary_penalty_demo"] = boundary_demo_payload
 
@@ -3104,6 +3283,8 @@ def main():
             # Disabled by default; enable with: --uniform-supervision-demo
             if ("--uniform-supervision-demo" in sys.argv) and (not bool(args.no_learn)):
                 try:
+                    demo_epochs = 2000
+                    demo_lr = float(learning_rates[0])
                     seed_base = 9000 + int(mixture_idx + 1)
                     np.random.seed(seed_base)
                     torch.manual_seed(seed_base)
@@ -3265,8 +3446,12 @@ def main():
                     for k in ("h1", "label", "figure"):
                         if k in payload:
                             out[k] = payload[k]
-                    for lk in ("lambda_0", "lambda_1"):
-                        if lk in payload and isinstance(payload[lk], dict):
+                    lambda_keys = sorted(
+                        [k for k in payload.keys() if isinstance(k, str) and k.startswith("lambda_")],
+                        key=lambda s: int(s.split("_", 1)[1]) if s.split("_", 1)[1].isdigit() else s,
+                    )
+                    for lk in lambda_keys:
+                        if isinstance(payload.get(lk), dict):
                             entry = payload[lk]
                             lam = entry.get("lambda")
                             metrics = entry.get("metrics")
@@ -3279,7 +3464,7 @@ def main():
                                 out[lk] = flat
                     if len(out) == 0:
                         return None
-                    out["models_saved_in_cache"] = True
+                    out["models_saved_in_cache"] = bool("models" in payload)
                     return out
 
                 # per_arch_final_mse_by_h is 3-D: [arch][h][iter]. Export a stable 2-D summary

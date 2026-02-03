@@ -1,4 +1,25 @@
 # Parzen-PNN-GaussianMixture-Estimator
+
+## Setup
+
+This project uses Python and depends on common scientific packages (NumPy, SciPy, Matplotlib) plus PyTorch.
+
+- Create/activate a virtual environment (example):
+    - `python -m venv .venv`
+    - `. .venv/bin/activate`
+- Install dependencies (minimum):
+    - `pip install numpy scipy matplotlib torch pytest`
+
+Notes:
+- The “boundary support” sampler uses `scipy.spatial.ConvexHull`.
+
+## Quick checks
+
+- Run tests: `python -m pytest -q`
+
+## Running experiments
+
+- Main experiment driver: `python estimator.py`
 ## What it consists of:
 - The project consists of estimating a two-dimensional PDF formed by a mixture of an odd number of Gaussians [1,3,5],\
    where the weights for composing the mixture and statistical parameters such as the mean and variance\

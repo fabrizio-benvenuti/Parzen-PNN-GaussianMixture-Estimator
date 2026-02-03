@@ -4,11 +4,11 @@ from tests.results_analysis import load_sweep_results, results_dir
 
 
 class TestBoundaryPenaltyCanIncreaseBoundaryMean(unittest.TestCase):
-    def test_boundary_mean_not_always_decreases(self):
-        """Theory: with finite-domain renormalization, boundary penalty can be counteracted by rescaling.
+    def test_boundary_mean_decreases_in_saved_demo(self):
+        """Sanity check on the saved artifacts.
 
-        Therefore, the mean predicted density near the boundary shell is not guaranteed to decrease.
-        The saved artifacts include at least one mixture where boundary_mean increases.
+        With boundary points sampled outside the convex hull, the stored demo shows the boundary penalty
+        reducing mean unnormalized density on the boundary set for all mixtures.
         """
 
         deltas = []
@@ -19,7 +19,7 @@ class TestBoundaryPenaltyCanIncreaseBoundaryMean(unittest.TestCase):
             b1 = float(demo["lambda_1"]["boundary_mean"])
             deltas.append(b1 - b0)
 
-        self.assertTrue(any(d > 0 for d in deltas), msg=f"Expected at least one positive delta, got {deltas}")
+        self.assertTrue(all(d < 0 for d in deltas), msg=f"Expected all deltas < 0, got {deltas}")
 
 
 if __name__ == "__main__":

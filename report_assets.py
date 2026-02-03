@@ -18,7 +18,7 @@ import numpy as np
 import torch
 
 # Import from estimator.py (safe: main() is guarded by if __name__ == '__main__')
-from estimator import Plotter, ParzenNeuralNetwork, compute_kde, sample_boundary_points_outside_plot
+from estimator import Plotter, ParzenNeuralNetwork, compute_kde, sample_boundary_points_outside_convex_hull
 
 
 @dataclass
@@ -100,8 +100,8 @@ def boundary_penalty_figure(*, seed: int = 0) -> str:
         num_uniform_points=300,
     )
 
-    # Boundary points in the shell outside D.
-    boundary_pts = sample_boundary_points_outside_plot(plotter, alpha=0.1, k=max(50, int(0.3 * n)))
+    # Boundary points outside the convex hull of all sampled points.
+    boundary_pts = sample_boundary_points_outside_convex_hull(samples_xy, alpha=0.1, k=max(50, int(0.3 * n)))
 
     def _train(lambda_boundary: float) -> np.ndarray:
         pnn = ParzenNeuralNetwork([30, 20], output_activation="relu", density_parameterization="log_density")
