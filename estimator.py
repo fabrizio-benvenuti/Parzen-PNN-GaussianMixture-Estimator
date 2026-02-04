@@ -740,126 +740,221 @@ def run_boundary_penalty_lambda_sweep_multiseed(
     num_uniform_points_ratio: float = 1.0,
     plot_grid: int = 100,
 ) -> tuple[str, str]:
-    """Run a small lambda sweep for the boundary penalty with mean±std across seeds.
+    """Visualize boundary penalty lambda sweep from cached PNN models.
+
+    Creates per-mixture figures showing:
+    - Top row: 3D surface plots (h1 vs lambda vs ValNLL) for each architecture
+    - Bottom row: 3D overlays comparing best λ=0 vs best λ≠0 PNN estimates
 
     Outputs:
-      - results/boundary_penalty_lambda_sweep_multiseed.csv
-      - figures/boundary_penalty_lambda_sweep_multiseed.jpeg
+      - results/boundary_penalty_lambda_sweep_cache.csv
+      - figures/boundary_penalty_lambda_sweep_mixture{1,2,3}.jpeg
     """
-    if seeds is None:
-        seeds = [0, 1]
-    if lambdas is None:
-        lambdas = [0.0, 1e-3, 1e-2]
-    if h1_by_mixture is None:
-        h1_by_mixture = {1: 7.0, 2: 7.0, 3: 12.0}
-
     mixtures = _make_default_mixtures()
     plotter = Plotter(-5, 5, -5, 5, int(plot_grid))
-
-    rows: list[dict[str, float]] = []
-    for mixture_idx, mixture in enumerate(mixtures, start=1):
-        h1 = float(h1_by_mixture[int(mixture_idx)])
-        for seed in seeds:
-            np.random.seed(int(seed) + 20_000 * int(mixture_idx))
-            torch.manual_seed(int(seed) + 20_000 * int(mixture_idx))
-
-            samples_xy = mixture.sample_points_weighted(100, with_pdf=False)
-            train_xy, val_xy = split_train_validation(samples_xy, val_fraction=0.2, seed=int(seed))
-
-            boundary_pts = sample_boundary_points_outside_convex_hull(samples_xy, alpha=0.1, k=max(20, int(0.3 * len(train_xy))))
-            n_uniform = int(max(0, round(num_uniform_points_ratio * len(train_xy))))
-
-            for lam in lambdas:
-                pnn = ParzenNeuralNetwork(
-                    hidden_layers=[30, 20],
-                    output_activation="relu",
-                    density_parameterization="log_density",
-                )
-                pnn.train_network(
-                    train_xy,
-                    plotter,
-                    bandwidth=float(h1),
-                    learning_rate=float(learning_rate),
-                    epochs=int(epochs),
-                    verbose=False,
-                    loss_mode="mse",
-                    num_uniform_points=int(n_uniform),
-                    boundary_points=boundary_pts,
-                    lambda_boundary=float(lam),
-                )
-
-                val_nll = _nll_from_avg_loglik(average_log_likelihood_pnn_on_domain(pnn, val_xy, plotter))
-                pdf_grid = pnn.estimate_pdf(plotter)
-                ring = _mean_density_on_boundary_ring(pdf_grid, plotter, ring_width=1.0)
-                shell = mean_unnormalized_density_on_points(pnn, boundary_pts)
-
-                rows.append(
-                    {
-                        "mixture": float(mixture_idx),
-                        "seed": float(seed),
-                        "h1": float(h1),
-                        "epochs": float(epochs),
-                        "lambda_boundary": float(lam),
-                        "val_nll": float(val_nll),
-                        "boundary_ring_mean": float(ring),
-                        "shell_mean_unnorm": float(shell),
-                    }
-                )
-
+    
+    # Expected cache structure from main sweep
+    bandwidths = [2, 7, 12, 16]
+    lambda_values = [0.0, 0.01, 0.1]
+    
+    pnn_architectures = [
+        {"hidden_layers": [20], "out": "sigmoid", "A": "auto"},
+        {"hidden_layers": [30, 20], "out": "sigmoid", "A": "auto"},
+        {"hidden_layers": [30, 20], "out": "relu", "A": "auto"},
+        {"hidden_layers": [20], "out": "relu", "A": "auto"},
+    ]
+    
+    def arch_label_fn(cfg: dict) -> str:
+        layers = "-".join(str(x) for x in cfg["hidden_layers"])
+        if cfg["out"] == "relu":
+            return f"MLP_{layers}_sigmoid_outReLU"
+        A = cfg.get("A", "auto")
+        if isinstance(A, str):
+            return f"MLP_{layers}_sigmoid_outSigmoid_Aauto"
+        return f"MLP_{layers}_sigmoid_outSigmoid_A{float(A):.2g}"
+    
+    arch_labels = [arch_label_fn(cfg) for cfg in pnn_architectures]
+    n_arch = len(pnn_architectures)
+    
     os.makedirs("results", exist_ok=True)
     os.makedirs("figures", exist_ok=True)
-    csv_path = os.path.join("results", "boundary_penalty_lambda_sweep_multiseed.csv")
-    with open(csv_path, "w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(
-            f,
-            fieldnames=[
-                "mixture",
-                "seed",
-                "h1",
-                "epochs",
-                "lambda_boundary",
-                "val_nll",
-                "boundary_ring_mean",
-                "shell_mean_unnorm",
-            ],
+    
+    # CSV rows for summary
+    csv_rows: list[dict] = []
+    
+    for mixture_idx, mixture in enumerate(mixtures):
+        print(f"Generating boundary penalty lambda sweep visualization for mixture {mixture_idx + 1}")
+        
+        # Load cache
+        cache_path = _pnn_sweep_cache_path(mixture_idx=mixture_idx)
+        if not os.path.exists(cache_path):
+            print(f"Warning: Cache not found for mixture {mixture_idx + 1}: {cache_path}")
+            continue
+        
+        cache = _torch_load_cache_trusted(cache_path)
+        pnn_block = cache.get("pnn", {})
+        
+        # Extract data
+        train_xy = _to_numpy_array(cache.get("data", {}).get("train_xy"))
+        val_xy = _to_numpy_array(cache.get("data", {}).get("val_xy"))
+        
+        # Aggregate ValNLL data: mean across iterations for each (arch, h1, lambda)
+        # Structure: valnll_grid[cfg_idx][i_h][i_lam] = mean ValNLL
+        valnll_grid = np.full((n_arch, len(bandwidths), len(lambda_values)), np.nan)
+        
+        for cfg_idx in range(n_arch):
+            for i_h, h1 in enumerate(bandwidths):
+                for i_lam, lam in enumerate(lambda_values):
+                    lam_key = str(float(lam))
+                    runs_by_lambda = pnn_block.get("runs_by_lambda", {})
+                    runs_here = runs_by_lambda.get(lam_key)
+                    
+                    if runs_here is not None and cfg_idx < len(runs_here) and i_h < len(runs_here[cfg_idx]):
+                        runs_list = runs_here[cfg_idx][i_h]
+                        if len(runs_list) > 0:
+                            nlls = [float(r.get("val_nll", np.nan)) for r in runs_list]
+                            nlls = [x for x in nlls if np.isfinite(x)]
+                            if len(nlls) > 0:
+                                valnll_grid[cfg_idx, i_h, i_lam] = float(np.mean(nlls))
+                                
+                                # Add to CSV
+                                csv_rows.append({
+                                    "mixture": int(mixture_idx + 1),
+                                    "architecture": str(arch_labels[cfg_idx]),
+                                    "h1": float(h1),
+                                    "lambda": float(lam),
+                                    "mean_val_nll": float(np.mean(nlls)),
+                                    "std_val_nll": float(np.std(nlls)),
+                                    "n_runs": int(len(nlls)),
+                                })
+        
+        # Create figure: top row = surface plots, bottom row = overlays
+        fig = plt.figure(figsize=(6 * n_arch, 12))
+        fig.suptitle(
+            f"Boundary penalty λ sweep — Mixture {mixture_idx + 1}\n"
+            "Top: ValNLL surface (h₁ vs λ, mean across iterations) | "
+            "Bottom: Best λ=0 vs best λ PNN overlays (selected by ValNLL)",
+            fontsize=12
         )
-        w.writeheader()
-        w.writerows(rows)
-
-    import matplotlib.pyplot as plt
-
-    # Plot ValNLL vs lambda for each mixture (mean±std across seeds).
-    fig = plt.figure(figsize=(10, 6))
-    ax = fig.add_subplot(111)
-    for mixture_idx in [1, 2, 3]:
-        xs = []
-        ys = []
-        es = []
-        for lam in lambdas:
-            vals = np.array(
-                [r["val_nll"] for r in rows if int(r["mixture"]) == mixture_idx and float(r["lambda_boundary"]) == float(lam)],
-                dtype=float,
+        # Add a bit more vertical spacing between rows to avoid collisions with titles
+        fig.subplots_adjust(hspace=0.35)
+        
+        # Top row: 3D surface plots (h1 vs lambda vs ValNLL)
+        for cfg_idx in range(n_arch):
+            ax_surf = fig.add_subplot(2, n_arch, cfg_idx + 1, projection='3d')            
+            # Prepare meshgrid
+            H1, LAM = np.meshgrid(bandwidths, lambda_values)
+            Z = valnll_grid[cfg_idx, :, :].T  # Transpose to match meshgrid layout
+            
+            # Plot surface
+            surf = ax_surf.plot_surface(H1, LAM, Z, cmap='coolwarm', alpha=0.8, edgecolor='k', linewidth=0.5)
+            
+            ax_surf.set_xlabel("h₁", fontsize=9, labelpad=8)
+            ax_surf.set_ylabel("λ", fontsize=9, labelpad=8)
+            ax_surf.set_zlabel("ValNLL\n(mean across seeds)", fontsize=8, labelpad=6)
+            ax_surf.set_title(
+                f"{arch_labels[cfg_idx]}\nValNLL surface over (h₁, λ)\nmean across 10 training runs per config",
+                fontsize=9,
+                pad=1
             )
-            if vals.size == 0:
+            ax_surf.view_init(elev=35, azim=60)
+            fig.colorbar(surf, ax=ax_surf, shrink=0.5, aspect=10)
+        
+        # Bottom row: Overlays (best λ=0 vs best λ≠0)
+        for cfg_idx in range(n_arch):
+            ax_overlay = fig.add_subplot(2, n_arch, n_arch + cfg_idx + 1, projection='3d')
+            
+            # Find best (h1, λ=0) by minimum ValNLL
+            lam0_idx = lambda_values.index(0.0)
+            lam0_nlls = valnll_grid[cfg_idx, :, lam0_idx]
+            valid_mask_lam0 = np.isfinite(lam0_nlls)
+            
+            if not np.any(valid_mask_lam0):
+                ax_overlay.text(0.5, 0.5, 0.5, "No valid λ=0 data", ha='center', va='center')
+                ax_overlay.set_title(f"{arch_labels[cfg_idx]}\nNo data available", fontsize=9)
                 continue
-            xs.append(float(lam))
-            ys.append(float(np.mean(vals)))
-            es.append(float(np.std(vals)))
-        if xs:
-            ax.errorbar(xs, ys, yerr=es, marker="o", capsize=4, label=f"Mixture {mixture_idx}")
-    ax.set_xscale("symlog", linthresh=1e-6)
-    ax.set_title("Boundary penalty lambda sweep (multi-seed): ValNLL vs λ")
-    ax.set_xlabel("λ (symlog)")
-    ax.set_ylabel("ValNLL")
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-    fig_path = os.path.join("figures", "boundary_penalty_lambda_sweep_multiseed.jpeg")
-    plt.tight_layout()
-    plt.savefig(fig_path, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-
+            
+            best_i_h_lam0 = int(np.nanargmin(lam0_nlls))
+            best_h1_lam0 = float(bandwidths[best_i_h_lam0])
+            best_nll_lam0 = float(lam0_nlls[best_i_h_lam0])
+            
+            # Find best (h1, λ) overall by minimum ValNLL
+            all_nlls = valnll_grid[cfg_idx, :, :].ravel()
+            valid_mask_all = np.isfinite(all_nlls)
+            
+            if not np.any(valid_mask_all):
+                ax_overlay.text(0.5, 0.5, 0.5, "No valid data", ha='center', va='center')
+                ax_overlay.set_title(f"{arch_labels[cfg_idx]}\nNo data available", fontsize=9)
+                continue
+            
+            best_flat_idx = int(np.nanargmin(all_nlls))
+            best_i_h_any, best_i_lam_any = np.unravel_index(best_flat_idx, valnll_grid[cfg_idx, :, :].shape)
+            best_h1_any = float(bandwidths[best_i_h_any])
+            best_lam_any = float(lambda_values[best_i_lam_any])
+            best_nll_any = float(valnll_grid[cfg_idx, best_i_h_any, best_i_lam_any])
+            
+            # Reconstruct PNN models from cache
+            try:
+                # Best λ=0 model
+                run_lam0 = _pnn_best_run_from_cache_for(
+                    cache, cfg_idx=cfg_idx, i_h=best_i_h_lam0, lambda_boundary=0.0
+                )
+                pnn_lam0 = _pnn_instantiate_from_cache(run_lam0.get("meta", {}))
+                pnn_lam0.load_state_dict(run_lam0.get("state_dict"))
+                pdf_lam0 = pnn_lam0.estimate_pdf(plotter)
+                
+                # Best λ≠0 model (could be λ=0 if that's overall best)
+                run_any = _pnn_best_run_from_cache_for(
+                    cache, cfg_idx=cfg_idx, i_h=best_i_h_any, lambda_boundary=best_lam_any
+                )
+                pnn_any = _pnn_instantiate_from_cache(run_any.get("meta", {}))
+                pnn_any.load_state_dict(run_any.get("state_dict"))
+                pdf_any = pnn_any.estimate_pdf(plotter)
+                
+                # Plot overlays with low opacity
+                ax_overlay.plot_surface(
+                    plotter.X, plotter.Y, pdf_lam0,
+                    cmap='plasma', alpha=0.5, label=f'λ=0'
+                )
+                ax_overlay.plot_surface(
+                    plotter.X, plotter.Y, pdf_any,
+                    cmap='viridis', alpha=0.5, label=f'λ={best_lam_any:g}'
+                )
+                
+                ax_overlay.set_xlabel("x", fontsize=8)
+                ax_overlay.set_ylabel("y", fontsize=8)
+                ax_overlay.set_zlabel("pdf", fontsize=8, labelpad=8)
+                ax_overlay.set_title(
+                    f"{arch_labels[cfg_idx]}\n"
+                    f"Plasma: λ=0 at h₁={best_h1_lam0:g} (ValNLL={best_nll_lam0:.3g})\n"
+                    f"Viridis: λ={best_lam_any:g} at h₁={best_h1_any:g} (ValNLL={best_nll_any:.3g})",
+                    fontsize=9,
+                    pad=2
+                )
+                ax_overlay.view_init(elev=25, azim=215)
+                
+            except Exception as e:
+                ax_overlay.text(0.5, 0.5, 0.5, f"Error: {str(e)[:50]}", ha='center', va='center', fontsize=8)
+                ax_overlay.set_title(f"{arch_labels[cfg_idx]}\nReconstruction failed", fontsize=9)
+        
+        # Save figure
+        fig_path = os.path.join("figures", f"boundary_penalty_lambda_sweep_mixture{mixture_idx + 1}.jpeg")
+        plt.tight_layout()
+        plt.savefig(fig_path, dpi=300, bbox_inches='tight')
+        plt.close(fig)
+        print(f"Saved boundary penalty lambda sweep figure: {fig_path}")
+    
+    # Save CSV
+    csv_path = os.path.join("results", "boundary_penalty_lambda_sweep_cache.csv")
+    with open(csv_path, "w", encoding="utf-8", newline="") as f:
+        if len(csv_rows) > 0:
+            w = csv.DictWriter(f, fieldnames=list(csv_rows[0].keys()))
+            w.writeheader()
+            w.writerows(csv_rows)
+        else:
+            f.write("mixture,architecture,h1,lambda,mean_val_nll,std_val_nll,n_runs\n")
+    
     print(f"Saved boundary penalty lambda sweep CSV: {csv_path}")
-    print(f"Saved boundary penalty lambda sweep figure: {fig_path}")
     return csv_path, fig_path
 
 

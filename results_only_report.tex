@@ -22,7 +22,7 @@
 \subsection{Parzen Window}
 
 \centering
-In this section are reported the estimation results ValNLL and MSE obtained by varying \\
+In this section are reported the estimation ValNLL and MSE obtained by varying \\
 the input parameters of the Parzen Window estimator.\\
 (i.e., window size $h_1$ and number of sampled points per gaussian in the mixture).\\
 
@@ -32,14 +32,14 @@ the input parameters of the Parzen Window estimator.\\
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.8\linewidth]{figures/Parzen_errors_mixture1.jpeg}
-\caption{In red: MSE between the mixture 1 pdf and its estimate PW estimate\\
+\caption{In red: MSE between the mixture 1 pdf and its PW estimate\\
 In blue: ValNLL between PW estimate and the sampled points;\\
 while varying the window size $h_1$ and the number of sampled points for each gaussian.}
 \label{fig:parzen-errors-1}
 \end{figure}
 \newpage
 \centering
-In this graph it's also noticeable how the MSE does not vary linearly with window size;\\
+In this graph it's marked how the MSE does not vary linearly with window size;\\
 approaching zero at the optimal value of $h_1$ and increasing exponentially when undersmoothing occurs;\\
 transitioning to the oversmoothed region, the MSE still increases but less steeply.\\
 Samples per gaussian seem to have an exponential impact on reducing MSE,\\
@@ -49,12 +49,12 @@ NLL does not show the same steepness in the oversmoothing region as MSE does.
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.75\linewidth]{figures/Parzen_errors_mixture2.jpeg}
-\caption{In red: MSE between the mixture 2 pdf and its estimate PW estimate\\
+\caption{In red: MSE between the mixture 2 pdf and its PW estimate\\
 In blue: ValNLL between PW estimate and the sampled points;\\
 while varying the window size $h_1$ and the number of sampled points for each gaussian.}
 \label{fig:parzen-errors-2}
 \end{figure}
-In this graph it's also noticeable how the MSE steepnes in the oversmoothed region is less pronounced\\
+In this graph it's marked how the MSE steepnes in the oversmoothed region is less pronounced\\
 compared to mixture 1; this is probably due to the fact that oversmothing the probability mass causes less error \\
 when the modes are closer together; whilst, in the mixture 1, overmoothing causes the probability mass to fall\\
 on the tails; which generates more error.\\
@@ -63,7 +63,7 @@ on the tails; which generates more error.\\
 \centering
 \includegraphics[width=0.8\linewidth]{figures/Parzen_errors_mixture3.jpeg}
 \centering
-\caption{In red: MSE between the mixture 3 pdf and its estimate PW estimate\\
+\caption{In red: MSE between the mixture 3 pdf and its PW estimate\\
 In blue: ValNLL between PW estimate and the sampled points;\\
 while varying the window size $h_1$ and the number of sampled points for each gaussian.}
 \label{fig:parzen-errors-3}
