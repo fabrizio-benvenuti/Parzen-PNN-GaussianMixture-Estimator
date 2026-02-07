@@ -1,0 +1,2924 @@
+{
+  "repo_root": "/home/fabrizio-benvenuti/Documents/Studio/AI/Parzen-PNN-GaussianMixture-Estimator",
+  "figures_in_report": [
+    {
+      "label": "fig:parzen-errors-1",
+      "includes": [
+        "figures/Parzen_errors_mixture1.jpeg"
+      ],
+      "caption": "In red: MSE between the mixture 1 pdf and its PW estimate\\\\\nIn blue: ValNLL between PW estimate and the sampled points;\\\\\nwhile varying the window size $h_1$ and the number of sampled points for each gaussian.",
+      "comment": "\\par\\noindent\\textbf{Observation.} The MSE surface in $h_1$ is clearly non-linear: it falls to an optimum and rises again on both sides.\\\\\nThe bandwidth that minimizes ValNLL is smaller than the one minimizing grid-MSE (a shift of $\\Delta h_1=3.014$), so ValNLL selection is consistently more undersmoothed on this sweep.\\\\\nOn the MSE-optimal slice, increasing samples per Gaussian mainly reduces error by shrinking variance, but with diminishing returns.\\\\\n\\textbf{Evidence.} Best-MSE at $(n=174,h_1=5.126)$ with MSE=1.46e-05; log(MSE) vs $h_1$ slopes: under $b=-0.965$, over $b=0.19$; sample-size elasticity at $h_1^*$: $\\alpha=-0.889$ in MSE $\\propto n^\\alpha$.",
+      "line_start": 32
+    },
+    {
+      "label": "fig:parzen-errors-2",
+      "includes": [
+        "figures/Parzen_errors_mixture2.jpeg"
+      ],
+      "caption": "In red: MSE between the mixture 2 pdf and its PW estimate\\\\\nIn blue: ValNLL between PW estimate and the sampled points;\\\\\nwhile varying the window size $h_1$ and the number of sampled points for each gaussian.",
+      "comment": "\\par\\noindent\\textbf{Observation.} The MSE curve forms a pronounced U-shape in $h_1$, rather than changing smoothly or linearly.\\\\\nThe bandwidth that minimizes ValNLL is smaller than the one minimizing grid-MSE (a shift of $\\Delta h_1=2.344$), so ValNLL selection is consistently more undersmoothed on this sweep.\\\\\nVarying the per-component sample count helps, but the bandwidth choice dominates the error once you move away from $h_1^*$.\\\\\n\\textbf{Evidence.} Best-MSE at $(n=193,h_1=5.536)$ with MSE=1.89e-05; log(MSE) vs $h_1$ slopes: under $b=-0.823$, over $b=0.123$; sample-size elasticity at $h_1^*$: $\\alpha=-0.821$ in MSE $\\propto n^\\alpha$.",
+      "line_start": 48
+    },
+    {
+      "label": "fig:parzen-errors-3",
+      "includes": [
+        "figures/Parzen_errors_mixture3.jpeg"
+      ],
+      "caption": "In red: MSE between the mixture 3 pdf and its PW estimate\\\\\nIn blue: ValNLL between PW estimate and the sampled points;\\\\\nwhile varying the window size $h_1$ and the number of sampled points for each gaussian.",
+      "comment": "\\par\\noindent\\textbf{Observation.} What stands out is the asymmetry around the optimum: the under-smoothed side climbs much faster than the over-smoothed side.\\\\\nThe bandwidth that minimizes ValNLL is smaller than the one minimizing grid-MSE (a shift of $\\Delta h_1=3.737$), so ValNLL selection is consistently more undersmoothed on this sweep.\\\\\nThe bandwidth mismatch is not cosmetic: it changes where probability mass gets smeared and shows up directly in the error slopes.\\\\\n\\textbf{Evidence.} Best-MSE at $(n=169,h_1=7.484)$ with MSE=1.71e-05; log(MSE) vs $h_1$ slopes: under $b=-0.538$, over $b=0.079$; sample-size elasticity at $h_1^*$: $\\alpha=-0.438$ in MSE $\\propto n^\\alpha$.",
+      "line_start": 62
+    },
+    {
+      "label": "fig:parzen-overlay-1",
+      "includes": [
+        "figures/Parzen_overlay_mixture1.jpeg"
+      ],
+      "caption": "Top row: pdf mixture 1 pdf;\\\\\nBottom: PW estimates selected by minimizing NLL and MSE respectively.",
+      "comment": "\\par\\noindent\\textbf{Observation.} Comparing the two overlays, the ValNLL pick is the visibly more \u2018spiky\u2019 one, consistent with a smaller bandwidth.\\\\\nQuantitatively, that comes from selecting a smaller $h_1$ and usually fewer samples per Gaussian under ValNLL.\\\\\n\\textbf{Evidence.} MSE-min $(n=174,h_1=5.126)$ vs ValNLL-min $(n=70,h_1=2.112)$; $\\Delta n=104$, $\\Delta h_1=3.014$.",
+      "line_start": 80
+    },
+    {
+      "label": "fig:parzen-overlay-2",
+      "includes": [
+        "figures/Parzen_overlay_mixture2.jpeg"
+      ],
+      "caption": "Top row: pdf mixture 2 pdf;\\\\\nBottom: PW estimates selected by minimizing NLL and MSE respectively.",
+      "comment": "\\par\\noindent\\textbf{Observation.} The two selection rules disagree in a systematic direction: ValNLL chooses the tighter (more undersmoothed) KDE than MSE does.\\\\\nQuantitatively, that comes from selecting a smaller $h_1$ and usually fewer samples per Gaussian under ValNLL.\\\\\n\\textbf{Evidence.} MSE-min $(n=193,h_1=5.536)$ vs ValNLL-min $(n=70,h_1=3.192)$; $\\Delta n=123$, $\\Delta h_1=2.344$.",
+      "line_start": 91
+    },
+    {
+      "label": "fig:parzen-overlay-3",
+      "includes": [
+        "figures/Parzen_overlay_mixture3.jpeg"
+      ],
+      "caption": "Top row: pdf mixture 3 pdf;\\\\\nBottom: PW estimates selected by minimizing NLL and MSE respectively.",
+      "comment": "\\par\\noindent\\textbf{Observation.} The overlay difference is mostly a bandwidth effect: the ValNLL solution keeps sharper peaks, while the MSE solution trades sharpness for shape fidelity.\\\\\nQuantitatively, that comes from selecting a smaller $h_1$ and usually fewer samples per Gaussian under ValNLL.\\\\\n\\textbf{Evidence.} MSE-min $(n=169,h_1=7.484)$ vs ValNLL-min $(n=78,h_1=3.747)$; $\\Delta n=91$, $\\Delta h_1=3.737$.",
+      "line_start": 102
+    },
+    {
+      "label": "fig:pnn-error-1",
+      "includes": [
+        "figures/learning_results_bandwidth_sweep_mixture1.jpeg"
+      ],
+      "caption": "Top: Eval-MSE surface between mixture 1 pdf and PNN estimate over epoch \u00d7 $h_1$\\\\\nBottom: final grid MSE (last epoch) vs $h_1$ shown as mean \u00b1 std\\\\\nacross 10 runs (PNN) and KDE for reference.",
+      "comment": "\\par\\noindent\\textbf{Observation.} Here the PNN does not move the MSE-optimal bandwidth away from KDE on this discrete grid, but it can change the error level at a fixed $h_1$.\\\\\nA practical takeaway is that, at the intentionally undersmoothed point $h_1=2$, the right architecture can measurably outperform the KDE reference.\\\\\nAt $h_1=2$, deeper nets are also less variable across seeds (median std 5.4e-05 vs 9.85e-05).\\\\\n\\textbf{Evidence.} KDE $h_1^\\mathrm{opt}=7$, PNN median $h_1^\\mathrm{opt}=7$; At $h_1=2$, best is \\texttt{MLP\\_20\\_sigmoid\\_outSigmoid\\_Aauto} with $\\Delta\\mathrm{MSE}=-0.000155$ (t=-4.257, p=0.002, n=10). ValNLL\u2013MSE: $\\rho=0.756$ (p=0.00071, n=16).",
+      "line_start": 115
+    },
+    {
+      "label": "fig:pnn-error-2",
+      "includes": [
+        "figures/learning_results_bandwidth_sweep_mixture2.jpeg"
+      ],
+      "caption": "Top: Eval-MSE surface between mixture 2 pdf and PNN estimate over epoch \u00d7 $h_1$\\\\\nBottom: final grid MSE (last epoch) vs $h_1$ shown as mean \u00b1 std\\\\\nacross 10 runs (PNN) and KDE for reference.",
+      "comment": "\\par\\noindent\\textbf{Observation.} On this sweep the PNN\u2019s MSE-optimal bandwidth tends to drift higher than KDE\u2019s, suggesting it tolerates (or benefits from) more smoothing on this grid.\\\\\nEven when $h_1$ is too small (undersmoothing), some PNN architectures can partially \u2018repair\u2019 the estimate and lower grid-MSE.\\\\\nAt $h_1=2$, deeper nets are also less variable across seeds (median std 1.84e-05 vs 0.000442).\\\\\n\\textbf{Evidence.} KDE $h_1^\\mathrm{opt}=7$, PNN median $h_1^\\mathrm{opt}=9.5$; At $h_1=2$, best is \\texttt{MLP\\_30-20\\_sigmoid\\_outSigmoid\\_Aauto} with $\\Delta\\mathrm{MSE}=-7.31e-05$ (t=-13.245, p=3.3e-07, n=10). ValNLL\u2013MSE: $\\rho=0.812$ (p=0.00013, n=16).",
+      "line_start": 128
+    },
+    {
+      "label": "fig:pnn-error-3",
+      "includes": [
+        "figures/learning_results_bandwidth_sweep_mixture3.jpeg"
+      ],
+      "caption": "Top row: Eval-MSE surface between mixture 3 pdf and PNN estimate over epoch \u00d7 $h_1$\\\\\nBottom row: final grid MSE (last epoch) vs $h_1$ shown as mean \u00b1 std\\\\\nacross 10 runs (PNN) and KDE for reference.",
+      "comment": "\\par\\noindent\\textbf{Observation.} On this sweep the PNN\u2019s MSE-optimal bandwidth tends to be lower than KDE\u2019s, hinting that learning helps in the sharper (more undersmoothed) regime on this grid.\\\\\nThe interesting part is not the optimum itself but the undersmoothed slice: the PNN can still reduce error there with a good architecture choice.\\\\\nAt $h_1=2$, deeper nets are also less variable across seeds (median std 2.56e-05 vs 0.00011).\\\\\n\\textbf{Evidence.} KDE $h_1^\\mathrm{opt}=12$, PNN median $h_1^\\mathrm{opt}=9.5$; At $h_1=2$, best is \\texttt{MLP\\_30-20\\_sigmoid\\_outReLU} with $\\Delta\\mathrm{MSE}=-9.47e-05$ (t=-13.274, p=3.2e-07, n=10). ValNLL\u2013MSE: $\\rho=0.935$ (p=1.1e-07, n=16).",
+      "line_start": 141
+    },
+    {
+      "label": "fig:pnn-overlay-1",
+      "includes": [
+        "figures/overlays_best_mixture1.jpeg"
+      ],
+      "caption": "Best overlays for mixture 1, selected by minimizing ValNLL.\\\\\nTop row: Parzen Window (KDE) estimate vs ground-truth mixture PDF at the same selected $h_1$.\\\\\nBottom row: Parzen Neural Network (PNN) estimate vs ground-truth mixture PDF.",
+      "comment": "\\par\\noindent\\textbf{Observation.} The ValNLL-selected PNN overlay ends up slightly better than the KDE reference at the same $h_1$, so the gain is mostly a subtle shape correction rather than a bandwidth change.\\\\\nNotably the selected $h_1$ is at the smallest value in the sweep, so the true optimum could lie outside the grid on the sharper side.\\\\\n\\textbf{Evidence.} Selected \\texttt{MLP\\_30-20\\_sigmoid\\_outSigmoid\\_Aauto} at $h_1=2$ with ValNLL=3.06; grid-MSE PNN=0.000239 vs KDE=0.000331, so $\\Delta\\mathrm{MSE}=-9.21e-05$.",
+      "line_start": 159
+    },
+    {
+      "label": "fig:pnn-overlay-2",
+      "includes": [
+        "figures/overlays_best_mixture2.jpeg"
+      ],
+      "caption": "Best overlays for mixture 2, selected by minimizing ValNLL.\\\\\nTop row: Parzen Window (KDE) estimate vs ground-truth mixture PDF at the same selected $h_1$.\\\\\nBottom row: Parzen Neural Network (PNN) estimate vs ground-truth mixture PDF.",
+      "comment": "\\par\\noindent\\textbf{Observation.} At the $h_1$ picked by ValNLL, the PNN overlay tracks the KDE baseline closely; when it improves, it tends to be by nudging local mass rather than shifting the global smoothing level.\\\\\nA low ValNLL is still a pointwise criterion, so small local artifacts can persist even when held-out likelihood looks good.\\\\\n\\textbf{Evidence.} Selected \\texttt{MLP\\_30-20\\_sigmoid\\_outSigmoid\\_Aauto} at $h_1=7$ with ValNLL=3.649; grid-MSE PNN=1.83e-05 vs KDE=1.92e-05, so $\\Delta\\mathrm{MSE}=-8.81e-07$.",
+      "line_start": 170
+    },
+    {
+      "label": "fig:pnn-overlay-3",
+      "includes": [
+        "figures/overlays_best_mixture3.jpeg"
+      ],
+      "caption": "Best overlays for mixture 3, selected by minimizing ValNLL.\\\\\nTop row: Parzen Window (KDE) estimate vs ground-truth mixture PDF at the same selected $h_1$.\\\\\nBottom row: Parzen Neural Network (PNN) estimate vs ground-truth mixture PDF.",
+      "comment": "\\par\\noindent\\textbf{Observation.} This panel highlights a fairly \u2018honest\u2019 selection: ValNLL chooses an overlay whose grid-MSE stays comparable to KDE at the same bandwidth, so it is not winning by overfitting bandwidth.\\\\\nValNLL is computed on samples, so it can miss some global-shape defects that still matter for grid-MSE.\\\\\n\\textbf{Evidence.} Selected \\texttt{MLP\\_30-20\\_sigmoid\\_outReLU} at $h_1=7$ with ValNLL=3.97; grid-MSE PNN=1.31e-05 vs KDE=1.42e-05, so $\\Delta\\mathrm{MSE}=-1.15e-06$.",
+      "line_start": 182
+    },
+    {
+      "label": "fig:pnn-boundary-1",
+      "includes": [
+        "figures/boundary_penalty_lambda_sweep_mixture1.jpeg"
+      ],
+      "caption": "Top Row: ValNLL for mixture 1 vs $h_1 \\times {\\lambda}$ for every PNN architecture\\\\\nBottom Row: PNN overlay that minimizes ValNLL@$\\lambda=0$\\\\\nvs the PNN that minimizes ValNLL $\\forall\\lambda$",
+      "comment": "\\par\\noindent\\textbf{Observation.} The boundary penalty behaves like a tail-regularizer: it often lowers ValNLL compared to $\\lambda=0$, especially when the unconstrained fit leaks mass outside the data support.\\\\\nHowever it is not monotone: across a non-trivial fraction of configurations, some $\\lambda$ values actually worsen ValNLL, so selection matters.\\\\\n\\textbf{Evidence.} Best vs $\\lambda=0$: improves in 93.75\\% with mean $\\Delta$=-0.034 and best $\\Delta$=-0.165; worst over $\\lambda$ is $\\Delta_{\\max}=0.03$ (positive means worse), in 37.5\\% of configs.",
+      "line_start": 197
+    },
+    {
+      "label": "fig:pnn-boundary-2",
+      "includes": [
+        "figures/boundary_penalty_lambda_sweep_mixture2.jpeg"
+      ],
+      "caption": "Top Row: ValNLL for mixture 2 vs $h_1 \\times {\\lambda}$ for every PNN architecture\\\\\nBottom Row: PNN overlay that minimizes ValNLL@$\\lambda=0$\\\\\nvs the PNN that minimizes ValNLL $\\forall\\lambda$",
+      "comment": "\\par\\noindent\\textbf{Observation.} This sweep suggests $\\lambda$ is useful mainly as a tail-control knob: many settings improve relative to $\\lambda=0$, but the benefit depends on the (arch,$h_1$) regime.\\\\\nIt\u2019s also not a free win: for many (arch,$h_1$) points there exists a $\\lambda$ that makes things worse than $\\lambda=0$.\\\\\n\\textbf{Evidence.} Best vs $\\lambda=0$: improves in 62.5\\% with mean $\\Delta$=-0.01 and best $\\Delta$=-0.041; worst over $\\lambda$ is $\\Delta_{\\max}=0.109$ (positive means worse), in 43.75\\% of configs.",
+      "line_start": 210
+    },
+    {
+      "label": "fig:pnn-boundary-3",
+      "includes": [
+        "figures/boundary_penalty_lambda_sweep_mixture3.jpeg"
+      ],
+      "caption": "Top Row: ValNLL for mixture 3 vs $h_1 \\times {\\lambda}$ for every PNN architecture\\\\\nBottom Row: PNN overlay that minimizes ValNLL@$\\lambda=0$\\\\\nvs the PNN that minimizes ValNLL $\\forall\\lambda$",
+      "comment": "\\par\\noindent\\textbf{Observation.} What\u2019s noticeable is that tuning $\\lambda$ can rescue some over/under-smoothed configurations in ValNLL, even if it doesn\u2019t radically change the best achievable score.\\\\\nIt\u2019s also not a free win: for many (arch,$h_1$) points there exists a $\\lambda$ that makes things worse than $\\lambda=0$.\\\\\n\\textbf{Evidence.} Best vs $\\lambda=0$: improves in 81.25\\% with mean $\\Delta$=-0.006 and best $\\Delta$=-0.026; worst over $\\lambda$ is $\\Delta_{\\max}=0.149$ (positive means worse), in 68.75\\% of configs.",
+      "line_start": 223
+    }
+  ],
+  "pw": {
+    "1": {
+      "source_csv": "logs/pw_errors_mixture1.csv",
+      "best_by_grid_mse": {
+        "n": 174,
+        "h1": 5.12620586450917,
+        "grid_mse": 1.4600071010222568e-05,
+        "val_avg_nll": 3.032469187798817
+      },
+      "best_by_val_nll": {
+        "n": 70,
+        "h1": 2.1123754286970224,
+        "grid_mse": 0.0001416333865415429,
+        "val_avg_nll": 2.2618823566642696
+      },
+      "h1_curve": {
+        "h1_values": [
+          1.150000000000001,
+          1.257245200261008,
+          1.3734091310423555,
+          1.4991450951099068,
+          1.6351478914282995,
+          1.7821560542147592,
+          1.94095419178203,
+          2.1123754286970224,
+          2.2973039548746566,
+          2.496677685320418,
+          2.7114910343313126,
+          2.9427978080621444,
+          3.1917142194635466,
+          3.459422029698712,
+          3.747171820248661,
+          4.056286400019716,
+          4.388164351873201,
+          4.744283723104587,
+          5.12620586450917,
+          5.535579422781971,
+          5.9741444911130195,
+          6.443736922953225,
+          6.946292814043166,
+          7.483853157914672,
+          8.058568680195929,
+          8.672704857171905,
+          9.32864712417655,
+          10.028906279517884,
+          10.77612408976554,
+          11.573079102358838,
+          12.422692671625274,
+          13.328035204432394,
+          14.292332631831053,
+          15.318973113185024,
+          16.411513979421127,
+          17.57368892217507,
+          18.809415435750953,
+          20.122802518957343,
+          21.518158644029945,
+          23.000000000000004
+        ],
+        "min_over_n_grid_mse": [
+          0.00046217214539618636,
+          0.00037327972053627297,
+          0.0002999392794756515,
+          0.00023998954879333822,
+          0.0001915918084650833,
+          0.0001531182573993754,
+          0.00012308155343840167,
+          0.00010010477922520886,
+          8.292729141814098e-05,
+          6.9012422422033e-05,
+          5.261929984304587e-05,
+          4.0395175655531226e-05,
+          3.18081198659021e-05,
+          2.6367209520444414e-05,
+          2.3650520812884937e-05,
+          2.0326392218135603e-05,
+          1.7080708612236826e-05,
+          1.5163262860622017e-05,
+          1.4600071010222568e-05,
+          1.5460379469319473e-05,
+          1.7844278573445738e-05,
+          2.1872830865482447e-05,
+          2.573159633178012e-05,
+          2.7995967196820398e-05,
+          3.2654932987133503e-05,
+          3.988258773383622e-05,
+          4.980832778460182e-05,
+          6.250433738060854e-05,
+          7.797636863692928e-05,
+          9.615840130931466e-05,
+          0.000116911432929287,
+          0.00014002639442176317,
+          0.0001652310012804474,
+          0.00019220018545531314,
+          0.00022056954570682637,
+          0.00024995097453072996,
+          0.0002799493127001056,
+          0.00031017866209508046,
+          0.0003402769734596211,
+          0.0003699177666974127
+        ],
+        "min_over_n_val_nll": [
+          2.4939098749884776,
+          2.416182106184991,
+          2.358240438695195,
+          2.316438989280592,
+          2.2879591198986846,
+          2.2705435280354918,
+          2.2623540892688903,
+          2.2618823566642696,
+          2.267869368824325,
+          2.2792390472617026,
+          2.295067141432781,
+          2.3145907759524147,
+          2.3372393819131054,
+          2.36265735793448,
+          2.3906959705224913,
+          2.421371204525322,
+          2.454804553988111,
+          2.4911719923194746,
+          2.5306770680199513,
+          2.573545367474736,
+          2.6189491451923157,
+          2.6379590639939843,
+          2.6615673168033966,
+          2.6897416561541587,
+          2.722467799949174,
+          2.7597523900209464,
+          2.801618406398041,
+          2.8480961557166697,
+          2.89921270729796,
+          2.954981633941076,
+          3.0153939895231354,
+          3.0777791587042462,
+          3.1266905265276725,
+          3.180262950699568,
+          3.238564624191063,
+          3.3015987953273562,
+          3.3693043238547733,
+          3.4344170042820394,
+          3.502723253661671,
+          3.575799607537978
+        ],
+        "h1_opt_mse": 5.12620586450917,
+        "h1_opt_nll": 2.1123754286970224
+      },
+      "regressions": {
+        "log_mse_vs_h1_under": {
+          "slope": -0.9654614865455857,
+          "intercept": -6.987958531623725,
+          "r2": 0.95154112508589,
+          "pvalue": 6.104502553039723e-12
+        },
+        "log_mse_vs_h1_over": {
+          "slope": 0.19041138476020478,
+          "intercept": -11.752270362386344,
+          "r2": 0.9375460188754271,
+          "pvalue": 6.719058717779304e-13
+        },
+        "log_mse_vs_log_n_at_h1opt": {
+          "slope": -0.8887982605796536,
+          "intercept": -5.7395913594287755,
+          "r2": 0.51496616630471,
+          "pvalue": 1.87611739645136e-07
+        },
+        "valnll_vs_h1_under": {
+          "slope": 0.028574655458718692,
+          "intercept": 2.274740595822419,
+          "r2": 0.1653825581371606,
+          "pvalue": 0.09397490837640185
+        },
+        "valnll_vs_h1_over": {
+          "slope": 0.05847115869434935,
+          "intercept": 2.2655382319956896,
+          "r2": 0.9970752896381253,
+          "pvalue": 1.5318423605751297e-25
+        }
+      },
+      "correlations": {
+        "spearman_n_vs_mse_at_h1opt": {
+          "rho": -0.7161350844277674,
+          "p": 2.0417743842327432e-07,
+          "n": 40
+        }
+      }
+    },
+    "2": {
+      "source_csv": "logs/pw_errors_mixture2.csv",
+      "best_by_grid_mse": {
+        "n": 193,
+        "h1": 5.535579422781971,
+        "grid_mse": 1.885972558740183e-05,
+        "val_avg_nll": 3.4445539282986757
+      },
+      "best_by_val_nll": {
+        "n": 70,
+        "h1": 3.1917142194635466,
+        "grid_mse": 5.204257132017799e-05,
+        "val_avg_nll": 3.327010133720413
+      },
+      "h1_curve": {
+        "h1_values": [
+          1.150000000000001,
+          1.257245200261008,
+          1.3734091310423555,
+          1.4991450951099068,
+          1.6351478914282995,
+          1.7821560542147592,
+          1.94095419178203,
+          2.1123754286970224,
+          2.2973039548746566,
+          2.496677685320418,
+          2.7114910343313126,
+          2.9427978080621444,
+          3.1917142194635466,
+          3.459422029698712,
+          3.747171820248661,
+          4.056286400019716,
+          4.388164351873201,
+          4.744283723104587,
+          5.12620586450917,
+          5.535579422781971,
+          5.9741444911130195,
+          6.443736922953225,
+          6.946292814043166,
+          7.483853157914672,
+          8.058568680195929,
+          8.672704857171905,
+          9.32864712417655,
+          10.028906279517884,
+          10.77612408976554,
+          11.573079102358838,
+          12.422692671625274,
+          13.328035204432394,
+          14.292332631831053,
+          15.318973113185024,
+          16.411513979421127,
+          17.57368892217507,
+          18.809415435750953,
+          20.122802518957343,
+          21.518158644029945,
+          23.000000000000004
+        ],
+        "min_over_n_grid_mse": [
+          0.00047485228549164963,
+          0.0003929174191135093,
+          0.00032626221252794323,
+          0.0002720758032635672,
+          0.00022588933563249075,
+          0.00018652586666044154,
+          0.00015287694077515917,
+          0.00012508583339002774,
+          0.00010273639447022744,
+          8.495609513126627e-05,
+          7.098917026177184e-05,
+          6.0193208192374945e-05,
+          5.1300768570102004e-05,
+          4.133533321119393e-05,
+          3.357291858395178e-05,
+          2.771827580558009e-05,
+          2.351789803410523e-05,
+          2.0755970823838814e-05,
+          1.925216752577946e-05,
+          1.885972558740183e-05,
+          1.94624395543534e-05,
+          2.0970196790275082e-05,
+          2.3313659392084803e-05,
+          2.6439096666625055e-05,
+          3.0078113436170033e-05,
+          3.409081066483002e-05,
+          3.9036210637042764e-05,
+          4.485077626118174e-05,
+          5.1457776405374e-05,
+          5.8770377571341917e-05,
+          6.669576396682915e-05,
+          7.493405702819462e-05,
+          8.300977631087635e-05,
+          9.155152298748321e-05,
+          0.00010048310528861941,
+          0.00010972778655753278,
+          0.00011921175214601894,
+          0.00012886720180698053,
+          0.00013863455231932873,
+          0.00014846343186023908
+        ],
+        "min_over_n_val_nll": [
+          4.576147918805488,
+          4.2868858599866915,
+          4.062969428473018,
+          3.867429483130393,
+          3.7103310708240373,
+          3.590653806752417,
+          3.5010575259681755,
+          3.435526966848155,
+          3.389129582493284,
+          3.357869919253607,
+          3.3385950379124516,
+          3.328899448902644,
+          3.327010133720413,
+          3.331659968266969,
+          3.3419612841917363,
+          3.357287678159033,
+          3.377173741563452,
+          3.3845210874836793,
+          3.391832733653313,
+          3.40446080714241,
+          3.4219907688659474,
+          3.4440829716315586,
+          3.4665342775147012,
+          3.4801649121701836,
+          3.4968070604092194,
+          3.516410212791818,
+          3.53892495437154,
+          3.5643027837656764,
+          3.59249791765851,
+          3.623465971132026,
+          3.657159445279661,
+          3.6935229783313797,
+          3.732491299716996,
+          3.7739910558102174,
+          3.8179458816598557,
+          3.8642832060029138,
+          3.9129413313518926,
+          3.96387588190799,
+          4.017065218751139,
+          4.072514519226552
+        ],
+        "h1_opt_mse": 5.535579422781971,
+        "h1_opt_nll": 3.1917142194635466
+      },
+      "regressions": {
+        "log_mse_vs_h1_under": {
+          "slope": -0.8225992354365579,
+          "intercept": -7.088236440680858,
+          "r2": 0.9575344244858149,
+          "pvalue": 4.237029524064804e-13
+        },
+        "log_mse_vs_h1_over": {
+          "slope": 0.12332480378483401,
+          "intercept": -11.34776676123563,
+          "r2": 0.9399390943262242,
+          "pvalue": 1.939430728878611e-12
+        },
+        "log_mse_vs_log_n_at_h1opt": {
+          "slope": -0.8214726045160762,
+          "intercept": -6.119754598168157,
+          "r2": 0.7492321344417602,
+          "pvalue": 5.681776719055647e-13
+        },
+        "valnll_vs_h1_under": {
+          "slope": -0.2020629247883694,
+          "intercept": 4.128759131871131,
+          "r2": 0.46667865736498787,
+          "pvalue": 0.0012645855145638216
+        },
+        "valnll_vs_h1_over": {
+          "slope": 0.03838702150266602,
+          "intercept": 3.1871954616990688,
+          "r2": 0.9990874119632129,
+          "pvalue": 8.145662232219288e-29
+        }
+      },
+      "correlations": {
+        "spearman_n_vs_mse_at_h1opt": {
+          "rho": -0.8803001876172608,
+          "p": 7.17054218285017e-14,
+          "n": 40
+        }
+      }
+    },
+    "3": {
+      "source_csv": "logs/pw_errors_mixture3.csv",
+      "best_by_grid_mse": {
+        "n": 169,
+        "h1": 7.483853157914672,
+        "grid_mse": 1.7130069169630564e-05,
+        "val_avg_nll": 4.097196374363207
+      },
+      "best_by_val_nll": {
+        "n": 78,
+        "h1": 3.747171820248661,
+        "grid_mse": 4.1923042289632515e-05,
+        "val_avg_nll": 3.762885196714238
+      },
+      "h1_curve": {
+        "h1_values": [
+          1.150000000000001,
+          1.257245200261008,
+          1.3734091310423555,
+          1.4991450951099068,
+          1.6351478914282995,
+          1.7821560542147592,
+          1.94095419178203,
+          2.1123754286970224,
+          2.2973039548746566,
+          2.496677685320418,
+          2.7114910343313126,
+          2.9427978080621444,
+          3.1917142194635466,
+          3.459422029698712,
+          3.747171820248661,
+          4.056286400019716,
+          4.388164351873201,
+          4.744283723104587,
+          5.12620586450917,
+          5.535579422781971,
+          5.9741444911130195,
+          6.443736922953225,
+          6.946292814043166,
+          7.483853157914672,
+          8.058568680195929,
+          8.672704857171905,
+          9.32864712417655,
+          10.028906279517884,
+          10.77612408976554,
+          11.573079102358838,
+          12.422692671625274,
+          13.328035204432394,
+          14.292332631831053,
+          15.318973113185024,
+          16.411513979421127,
+          17.57368892217507,
+          18.809415435750953,
+          20.122802518957343,
+          21.518158644029945,
+          23.000000000000004
+        ],
+        "min_over_n_grid_mse": [
+          0.000452680311162422,
+          0.0003700062115379278,
+          0.0003033953556693735,
+          0.0002498112139238025,
+          0.00020671234419661352,
+          0.00017198901772816577,
+          0.0001439118285808427,
+          0.00012108587916499201,
+          0.00010240698053832977,
+          8.702020471735685e-05,
+          7.428072631787213e-05,
+          6.307619292289099e-05,
+          5.386185234097e-05,
+          4.662357332349936e-05,
+          4.103136162238433e-05,
+          3.6814682276738426e-05,
+          3.375062381270097e-05,
+          3.060368091581759e-05,
+          2.6768178821900472e-05,
+          2.3980816697405254e-05,
+          2.1334042489798033e-05,
+          1.9193762487200963e-05,
+          1.7803052039957273e-05,
+          1.7130069169630564e-05,
+          1.7137449805749947e-05,
+          1.7778025036535723e-05,
+          1.8993122288332397e-05,
+          2.071367939884346e-05,
+          2.2863888395804415e-05,
+          2.475122308077982e-05,
+          2.66196883162041e-05,
+          2.8777161861880733e-05,
+          3.1192558396133784e-05,
+          3.3836666916053035e-05,
+          3.668496305545703e-05,
+          3.972050683479503e-05,
+          4.2936344592963766e-05,
+          4.633681024831949e-05,
+          4.9937237079337126e-05,
+          5.376185276190272e-05
+        ],
+        "min_over_n_val_nll": [
+          5.411270144294965,
+          5.0030614268589915,
+          4.683326176879496,
+          4.434584456244126,
+          4.242641672317418,
+          4.096075554340745,
+          3.9857594426617107,
+          3.904417899106259,
+          3.8462365391065094,
+          3.806541613672283,
+          3.781542805813903,
+          3.768124065065784,
+          3.7636792900970613,
+          3.766002132100563,
+          3.762885196714238,
+          3.7643265803966144,
+          3.7724832073461525,
+          3.7867095174972523,
+          3.8062599602731795,
+          3.8303134998172848,
+          3.8563984158219404,
+          3.8722285115266297,
+          3.888430301402007,
+          3.9051159869293555,
+          3.922396156598854,
+          3.9403683153467512,
+          3.9591218478034493,
+          3.978751633410353,
+          3.9993716718849797,
+          4.020323818515985,
+          4.041236221473937,
+          4.064051296613392,
+          4.088721272403515,
+          4.115238711609573,
+          4.143647287474494,
+          4.1740503862407765,
+          4.20661431901173,
+          4.241564346708575,
+          4.279172996817493,
+          4.319741502611407
+        ],
+        "h1_opt_mse": 7.483853157914672,
+        "h1_opt_nll": 3.747171820248661
+      },
+      "regressions": {
+        "log_mse_vs_h1_under": {
+          "slope": -0.5376557569277648,
+          "intercept": -7.7371600195158505,
+          "r2": 0.8978757203358134,
+          "pvalue": 7.124993781030874e-12
+        },
+        "log_mse_vs_h1_over": {
+          "slope": 0.07865070424409146,
+          "intercept": -11.551518886104551,
+          "r2": 0.9829995609909066,
+          "pvalue": 8.661703192476273e-14
+        },
+        "log_mse_vs_log_n_at_h1opt": {
+          "slope": -0.4382480416381452,
+          "intercept": -8.373618974035795,
+          "r2": 0.5276474822681904,
+          "pvalue": 1.1215694738817377e-07
+        },
+        "valnll_vs_h1_under": {
+          "slope": -0.14349336392278755,
+          "intercept": 4.515446453269967,
+          "r2": 0.33008208565217495,
+          "pvalue": 0.004139914393757183
+        },
+        "valnll_vs_h1_over": {
+          "slope": 0.02626315347293574,
+          "intercept": 3.7138371623323017,
+          "r2": 0.9998384298649573,
+          "pvalue": 6.021236100950575e-28
+        }
+      },
+      "correlations": {
+        "spearman_n_vs_mse_at_h1opt": {
+          "rho": -0.7315196998123827,
+          "p": 8.230614092020164e-08,
+          "n": 40
+        }
+      }
+    }
+  },
+  "pnn": {
+    "1": {
+      "source_json": "results/sweep_results_mixture1.json",
+      "bandwidths_h1": [
+        2.0,
+        7.0,
+        12.0,
+        16.0
+      ],
+      "kde": {
+        "grid_mse": [
+          0.0003308022141097044,
+          0.00015990780064754654,
+          0.00028093907572802375,
+          0.0003859708442343406
+        ],
+        "val_avg_nll": [
+          3.158110265582026,
+          3.1466965130146254,
+          3.414046561281738,
+          3.6598174799622383
+        ],
+        "h1_opt_mse": 7.0,
+        "h1_opt_val_nll": 7.0
+      },
+      "pnn": {
+        "architectures": [
+          {
+            "label": "MLP_20_sigmoid_outSigmoid_Aauto",
+            "h1_opt_mse": 7.0,
+            "mse_at_h1opt": 0.00015310843572624382,
+            "h1_opt_val_nll": 7.0,
+            "val_nll_at_h1opt": 3.140038013458252,
+            "std_mse_at_h1=2": 0.00010952308565492879
+          },
+          {
+            "label": "MLP_30-20_sigmoid_outSigmoid_Aauto",
+            "h1_opt_mse": 7.0,
+            "mse_at_h1opt": 0.00015668150786522713,
+            "h1_opt_val_nll": 2.0,
+            "val_nll_at_h1opt": 3.0601329803466797,
+            "std_mse_at_h1=2": 4.6543159821134034e-05
+          },
+          {
+            "label": "MLP_30-20_sigmoid_outReLU",
+            "h1_opt_mse": 7.0,
+            "mse_at_h1opt": 0.00015709494201087744,
+            "h1_opt_val_nll": 2.0,
+            "val_nll_at_h1opt": 3.1004550457000732,
+            "std_mse_at_h1=2": 6.139488459228655e-05
+          },
+          {
+            "label": "MLP_20_sigmoid_outReLU",
+            "h1_opt_mse": 7.0,
+            "mse_at_h1opt": 0.000171771857585737,
+            "h1_opt_val_nll": 7.0,
+            "val_nll_at_h1opt": 3.117565870285034,
+            "std_mse_at_h1=2": 8.750501713768971e-05
+          }
+        ],
+        "final_grid_mse": [
+          [
+            0.00017539860890432188,
+            0.00015310843572624382,
+            0.00027282280806007717,
+            0.0003675853754933323
+          ],
+          [
+            0.0002387388673081101,
+            0.00015668150786522713,
+            0.00027247132291462016,
+            0.0003670048841588407
+          ],
+          [
+            0.00022747566424191588,
+            0.00015709494201087744,
+            0.0002726671135716484,
+            0.0003663847875850685
+          ],
+          [
+            0.00019843302947445855,
+            0.000171771857585737,
+            0.0002685796592486029,
+            0.00036388727346239045
+          ]
+        ],
+        "final_grid_mse_std": [
+          [
+            0.00010952308565492879,
+            1.6258252943129504e-05,
+            6.387649827633945e-06,
+            3.2864098512126034e-06
+          ],
+          [
+            4.6543159821134034e-05,
+            3.863171469143083e-06,
+            1.814279795369897e-06,
+            3.864329417473508e-06
+          ],
+          [
+            6.139488459228655e-05,
+            4.676012188772952e-06,
+            2.3018842301682298e-06,
+            2.810117554174391e-06
+          ],
+          [
+            8.750501713768971e-05,
+            6.151981456588556e-05,
+            4.2808599870204344e-06,
+            3.1169637973841877e-06
+          ]
+        ],
+        "val_avg_nll": [
+          [
+            3.231135129928589,
+            3.140038013458252,
+            3.360031843185425,
+            3.5448200702667236
+          ],
+          [
+            3.0601329803466797,
+            3.1429126262664795,
+            3.368699312210083,
+            3.553441286087036
+          ],
+          [
+            3.1004550457000732,
+            3.1439552307128906,
+            3.369202136993408,
+            3.554046630859375
+          ],
+          [
+            3.5205962657928467,
+            3.117565870285034,
+            3.356191635131836,
+            3.545903444290161
+          ]
+        ],
+        "undersmoothed_h1_2": {
+          "MLP_20_sigmoid_outSigmoid_Aauto": {
+            "kde_grid_mse": 0.0003308022141097044,
+            "pnn_grid_mse_mean": 0.00017539860890432188,
+            "pnn_grid_mse_std": 0.00011544746901309641,
+            "delta_mean": -0.00015540360520538253,
+            "ttest_1samp_delta": {
+              "t": -4.256735580706925,
+              "p": 0.0021213192854832824,
+              "n": 10
+            },
+            "cohens_d_delta": -1.3460979832113382
+          },
+          "MLP_30-20_sigmoid_outSigmoid_Aauto": {
+            "kde_grid_mse": 0.0003308022141097044,
+            "pnn_grid_mse_mean": 0.0002387388673081101,
+            "pnn_grid_mse_std": 4.906079817867289e-05,
+            "delta_mean": -9.20633468015943e-05,
+            "ttest_1samp_delta": {
+              "t": -5.934062952884695,
+              "p": 0.0002196173527738406,
+              "n": 10
+            },
+            "cohens_d_delta": -1.8765154709940075
+          },
+          "MLP_30-20_sigmoid_outReLU": {
+            "kde_grid_mse": 0.0003308022141097044,
+            "pnn_grid_mse_mean": 0.00022747566424191588,
+            "pnn_grid_mse_std": 6.471589066493453e-05,
+            "delta_mean": -0.00010332654986778854,
+            "ttest_1samp_delta": {
+              "t": -5.048949137405992,
+              "p": 0.0006913302946510091,
+              "n": 10
+            },
+            "cohens_d_delta": -1.5966179064545376
+          },
+          "MLP_20_sigmoid_outReLU": {
+            "kde_grid_mse": 0.0003308022141097044,
+            "pnn_grid_mse_mean": 0.00019843302947445855,
+            "pnn_grid_mse_std": 9.223838694905578e-05,
+            "delta_mean": -0.0001323691846352459,
+            "ttest_1samp_delta": {
+              "t": -4.53811183512925,
+              "p": 0.0014097197937604931,
+              "n": 10
+            },
+            "cohens_d_delta": -1.4350769675574957
+          }
+        },
+        "spearman_valnll_vs_mse": {
+          "rho": 0.7558823529411764,
+          "p": 0.0007058905869098943,
+          "n": 16
+        }
+      },
+      "best_by_val_nll": {
+        "label": "MLP_30-20_sigmoid_outSigmoid_Aauto",
+        "h1": 2.0,
+        "val_avg_nll": 3.0601329803466797
+      }
+    },
+    "2": {
+      "source_json": "results/sweep_results_mixture2.json",
+      "bandwidths_h1": [
+        2.0,
+        7.0,
+        12.0,
+        16.0
+      ],
+      "kde": {
+        "grid_mse": [
+          0.00016775510209193867,
+          1.9158916735948138e-05,
+          4.3132353830409674e-05,
+          7.051290909200269e-05
+        ],
+        "val_avg_nll": [
+          4.843362029956276,
+          3.7062321224649364,
+          3.7688736190407175,
+          3.8640253888338947
+        ],
+        "h1_opt_mse": 7.0,
+        "h1_opt_val_nll": 7.0
+      },
+      "pnn": {
+        "architectures": [
+          {
+            "label": "MLP_20_sigmoid_outSigmoid_Aauto",
+            "h1_opt_mse": 12.0,
+            "mse_at_h1opt": 5.193065406187557e-05,
+            "h1_opt_val_nll": 12.0,
+            "val_nll_at_h1opt": 3.714089870452881,
+            "std_mse_at_h1=2": 0.0005238028210318047
+          },
+          {
+            "label": "MLP_30-20_sigmoid_outSigmoid_Aauto",
+            "h1_opt_mse": 7.0,
+            "mse_at_h1opt": 1.8277843306704715e-05,
+            "h1_opt_val_nll": 7.0,
+            "val_nll_at_h1opt": 3.6486406326293945,
+            "std_mse_at_h1=2": 1.6548458305712298e-05
+          },
+          {
+            "label": "MLP_30-20_sigmoid_outReLU",
+            "h1_opt_mse": 7.0,
+            "mse_at_h1opt": 1.8557958605319915e-05,
+            "h1_opt_val_nll": 7.0,
+            "val_nll_at_h1opt": 3.6663691997528076,
+            "std_mse_at_h1=2": 2.0279919125824184e-05
+          },
+          {
+            "label": "MLP_20_sigmoid_outReLU",
+            "h1_opt_mse": 12.0,
+            "mse_at_h1opt": 4.4861661288829146e-05,
+            "h1_opt_val_nll": 12.0,
+            "val_nll_at_h1opt": 3.7195894718170166,
+            "std_mse_at_h1=2": 0.0003592137842075349
+          }
+        ],
+        "final_grid_mse": [
+          [
+            0.000836429389389445,
+            0.00012062868397335683,
+            5.193065406187557e-05,
+            6.490361900975536e-05
+          ],
+          [
+            9.469302238918282e-05,
+            1.8277843306704715e-05,
+            4.216450430579855e-05,
+            6.72489885186414e-05
+          ],
+          [
+            9.877562615547854e-05,
+            1.8557958605319915e-05,
+            4.2032684878485135e-05,
+            6.764265269890439e-05
+          ],
+          [
+            0.000803509377768613,
+            9.614500840305234e-05,
+            4.4861661288829146e-05,
+            6.41353675875185e-05
+          ]
+        ],
+        "final_grid_mse_std": [
+          [
+            0.0005238028210318047,
+            3.582822221514688e-05,
+            1.0377075503260842e-05,
+            3.690166554385914e-06
+          ],
+          [
+            1.6548458305712298e-05,
+            2.396449630192525e-06,
+            8.044436350918145e-07,
+            3.281502052612892e-07
+          ],
+          [
+            2.0279919125824184e-05,
+            1.40897205474177e-06,
+            3.6613952571709454e-07,
+            3.9348303337390215e-07
+          ],
+          [
+            0.0003592137842075349,
+            1.848197327606703e-05,
+            3.9555202178971e-06,
+            3.1783141412789556e-06
+          ]
+        ],
+        "val_avg_nll": [
+          [
+            5.737966537475586,
+            3.7318365573883057,
+            3.714089870452881,
+            3.7801201343536377
+          ],
+          [
+            4.1417765617370605,
+            3.6486406326293945,
+            3.732550859451294,
+            3.8119194507598877
+          ],
+          [
+            4.443411350250244,
+            3.6663691997528076,
+            3.731785297393799,
+            3.8116888999938965
+          ],
+          [
+            5.569937229156494,
+            3.774038553237915,
+            3.7195894718170166,
+            3.783158302307129
+          ]
+        ],
+        "undersmoothed_h1_2": {
+          "MLP_20_sigmoid_outSigmoid_Aauto": {
+            "kde_grid_mse": 0.00016775510209193867,
+            "pnn_grid_mse_mean": 0.000836429389389445,
+            "pnn_grid_mse_std": 0.0005521366530940173,
+            "delta_mean": 0.0006686742872975064,
+            "ttest_1samp_delta": {
+              "t": 3.8297290150919503,
+              "p": 0.004029395202124161,
+              "n": 10
+            },
+            "cohens_d_delta": 1.2110666508923926
+          },
+          "MLP_30-20_sigmoid_outSigmoid_Aauto": {
+            "kde_grid_mse": 0.00016775510209193867,
+            "pnn_grid_mse_mean": 9.469302238918282e-05,
+            "pnn_grid_mse_std": 1.744360667012729e-05,
+            "delta_mean": -7.306207970275586e-05,
+            "ttest_1samp_delta": {
+              "t": -13.245115349059887,
+              "p": 3.307145474560568e-07,
+              "n": 10
+            },
+            "cohens_d_delta": -4.188473237468539
+          },
+          "MLP_30-20_sigmoid_outReLU": {
+            "kde_grid_mse": 0.00016775510209193867,
+            "pnn_grid_mse_mean": 9.877562615547854e-05,
+            "pnn_grid_mse_std": 2.1376911733871757e-05,
+            "delta_mean": -6.897947593646013e-05,
+            "ttest_1samp_delta": {
+              "t": -10.20410518037361,
+              "p": 3.02357791127679e-06,
+              "n": 10
+            },
+            "cohens_d_delta": -3.226821385390389
+          },
+          "MLP_20_sigmoid_outReLU": {
+            "kde_grid_mse": 0.00016775510209193867,
+            "pnn_grid_mse_mean": 0.000803509377768613,
+            "pnn_grid_mse_std": 0.00037864457500801085,
+            "delta_mean": 0.0006357542756766745,
+            "ttest_1samp_delta": {
+              "t": 5.309547993091789,
+              "p": 0.00048766588320982003,
+              "n": 10
+            },
+            "cohens_d_delta": 1.6790265004146017
+          }
+        },
+        "spearman_valnll_vs_mse": {
+          "rho": 0.8117647058823528,
+          "p": 0.00013432237477471032,
+          "n": 16
+        }
+      },
+      "best_by_val_nll": {
+        "label": "MLP_30-20_sigmoid_outSigmoid_Aauto",
+        "h1": 7.0,
+        "val_avg_nll": 3.6486406326293945
+      }
+    },
+    "3": {
+      "source_json": "results/sweep_results_mixture3.json",
+      "bandwidths_h1": [
+        2.0,
+        7.0,
+        12.0,
+        16.0
+      ],
+      "kde": {
+        "grid_mse": [
+          0.00018125962807477803,
+          1.4218820360159746e-05,
+          1.4059228838224832e-05,
+          2.0281085129064003e-05
+        ],
+        "val_avg_nll": [
+          5.142926684722848,
+          4.0017119895323825,
+          4.01148937274202,
+          4.049255699570737
+        ],
+        "h1_opt_mse": 12.0,
+        "h1_opt_val_nll": 7.0
+      },
+      "pnn": {
+        "architectures": [
+          {
+            "label": "MLP_20_sigmoid_outSigmoid_Aauto",
+            "h1_opt_mse": 12.0,
+            "mse_at_h1opt": 1.7895055661996182e-05,
+            "h1_opt_val_nll": 12.0,
+            "val_nll_at_h1opt": 3.9850873947143555,
+            "std_mse_at_h1=2": 8.550182523298506e-05
+          },
+          {
+            "label": "MLP_30-20_sigmoid_outSigmoid_Aauto",
+            "h1_opt_mse": 7.0,
+            "mse_at_h1opt": 1.3168113175297323e-05,
+            "h1_opt_val_nll": 7.0,
+            "val_nll_at_h1opt": 3.9710865020751953,
+            "std_mse_at_h1=2": 2.9873594672953784e-05
+          },
+          {
+            "label": "MLP_30-20_sigmoid_outReLU",
+            "h1_opt_mse": 7.0,
+            "mse_at_h1opt": 1.30677385343931e-05,
+            "h1_opt_val_nll": 7.0,
+            "val_nll_at_h1opt": 3.9704012870788574,
+            "std_mse_at_h1=2": 2.141325568658474e-05
+          },
+          {
+            "label": "MLP_20_sigmoid_outReLU",
+            "h1_opt_mse": 12.0,
+            "mse_at_h1opt": 1.818962628868231e-05,
+            "h1_opt_val_nll": 12.0,
+            "val_nll_at_h1opt": 3.990612745285034,
+            "std_mse_at_h1=2": 0.0001354929094175444
+          }
+        ],
+        "final_grid_mse": [
+          [
+            0.00020986813773928248,
+            3.976385666410317e-05,
+            1.7895055661996182e-05,
+            2.031464008521369e-05
+          ],
+          [
+            9.75649102326592e-05,
+            1.3168113175297323e-05,
+            1.4300265273643694e-05,
+            1.9873635455835573e-05
+          ],
+          [
+            8.651202937401504e-05,
+            1.30677385343931e-05,
+            1.4324751965430572e-05,
+            1.973252362754506e-05
+          ],
+          [
+            0.00029510022078735147,
+            4.080363136675196e-05,
+            1.818962628868231e-05,
+            2.103083154563282e-05
+          ]
+        ],
+        "final_grid_mse_std": [
+          [
+            8.550182523298506e-05,
+            8.704662257111092e-06,
+            3.2921381760531193e-06,
+            5.157156322295749e-07
+          ],
+          [
+            2.9873594672953784e-05,
+            1.1053632319721702e-06,
+            1.0573930651491955e-06,
+            4.25535708989779e-07
+          ],
+          [
+            2.141325568658474e-05,
+            1.4186943249024213e-06,
+            6.658049292343261e-07,
+            2.324909290656218e-07
+          ],
+          [
+            0.0001354929094175444,
+            1.0324349758999635e-05,
+            1.1677382356521327e-06,
+            1.2567186222003806e-06
+          ]
+        ],
+        "val_avg_nll": [
+          [
+            5.0045270919799805,
+            4.025373935699463,
+            3.9850873947143555,
+            4.0139851570129395
+          ],
+          [
+            4.320599555969238,
+            3.9710865020751953,
+            3.9847357273101807,
+            4.017343521118164
+          ],
+          [
+            4.3404860496521,
+            3.9704012870788574,
+            3.987381935119629,
+            4.015040397644043
+          ],
+          [
+            5.221745014190674,
+            4.012031078338623,
+            3.990612745285034,
+            4.016421318054199
+          ]
+        ],
+        "undersmoothed_h1_2": {
+          "MLP_20_sigmoid_outSigmoid_Aauto": {
+            "kde_grid_mse": 0.00018125962807477803,
+            "pnn_grid_mse_mean": 0.00020986813773928248,
+            "pnn_grid_mse_std": 9.012683727929657e-05,
+            "delta_mean": 2.8608509664504456e-05,
+            "ttest_1samp_delta": {
+              "t": 1.003785928074006,
+              "p": 0.3417047345379438,
+              "n": 10
+            },
+            "cohens_d_delta": 0.31742498159398125
+          },
+          "MLP_30-20_sigmoid_outSigmoid_Aauto": {
+            "kde_grid_mse": 0.00018125962807477803,
+            "pnn_grid_mse_mean": 9.75649102326592e-05,
+            "pnn_grid_mse_std": 3.1489533687735616e-05,
+            "delta_mean": -8.369471784211882e-05,
+            "ttest_1samp_delta": {
+              "t": -8.404885862419391,
+              "p": 1.4888544087141815e-05,
+              "n": 10
+            },
+            "cohens_d_delta": -2.657858279899388
+          },
+          "MLP_30-20_sigmoid_outReLU": {
+            "kde_grid_mse": 0.00018125962807477803,
+            "pnn_grid_mse_mean": 8.651202937401504e-05,
+            "pnn_grid_mse_std": 2.2571553363053477e-05,
+            "delta_mean": -9.474759870076299e-05,
+            "ttest_1samp_delta": {
+              "t": -13.274151313682074,
+              "p": 3.245437921989257e-07,
+              "n": 10
+            },
+            "cohens_d_delta": -4.197655215695157
+          },
+          "MLP_20_sigmoid_outReLU": {
+            "kde_grid_mse": 0.00018125962807477803,
+            "pnn_grid_mse_mean": 0.00029510022078735147,
+            "pnn_grid_mse_std": 0.00014282206685410618,
+            "delta_mean": 0.00011384059271257346,
+            "ttest_1samp_delta": {
+              "t": 2.5205878271110334,
+              "p": 0.032737059921708785,
+              "n": 10
+            },
+            "cohens_d_delta": 0.7970798576165578
+          }
+        },
+        "spearman_valnll_vs_mse": {
+          "rho": 0.9352941176470588,
+          "p": 1.0720167152998667e-07,
+          "n": 16
+        }
+      },
+      "best_by_val_nll": {
+        "label": "MLP_30-20_sigmoid_outReLU",
+        "h1": 7.0,
+        "val_avg_nll": 3.9704012870788574
+      }
+    }
+  },
+  "boundary": {
+    "source_csv": "results/boundary_penalty_lambda_sweep_cache.csv",
+    "by_mixture": {
+      "1": {
+        "MLP_20_sigmoid_outSigmoid_Aauto": {
+          "2.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.7925566911697386,
+              "std_val_nll": 0.36037362158917735,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.748849129676819,
+              "std_val_nll": 0.13629976259444365,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.8158211708068848,
+              "std_val_nll": 0.3059513078799185,
+              "n_runs": 10
+            }
+          ],
+          "7.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.1611469745635987,
+              "std_val_nll": 0.01141719694243833,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.175086832046509,
+              "std_val_nll": 0.07675151724938357,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.1915844917297362,
+              "std_val_nll": 0.0557482670583472,
+              "n_runs": 10
+            }
+          ],
+          "12.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.368601155281067,
+              "std_val_nll": 0.0116407087101959,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.3753737688064573,
+              "std_val_nll": 0.015387162391575537,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.3575644493103027,
+              "std_val_nll": 0.009534513278379403,
+              "n_runs": 10
+            }
+          ],
+          "16.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.5600890159606933,
+              "std_val_nll": 0.009464747970471064,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.551104950904846,
+              "std_val_nll": 0.004578117755174871,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.5294296741485596,
+              "std_val_nll": 0.005891239467862573,
+              "n_runs": 10
+            }
+          ]
+        },
+        "MLP_30-20_sigmoid_outSigmoid_Aauto": {
+          "2.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.2529457569122315,
+              "std_val_nll": 0.11895308910053569,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.276067018508911,
+              "std_val_nll": 0.11233007407241614,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.2383230924606323,
+              "std_val_nll": 0.10831085380409128,
+              "n_runs": 10
+            }
+          ],
+          "7.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.155786561965942,
+              "std_val_nll": 0.010717701842633497,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.1565845251083373,
+              "std_val_nll": 0.00768282690596002,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.147469425201416,
+              "std_val_nll": 0.0059947513070130135,
+              "n_runs": 10
+            }
+          ],
+          "12.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.3765127658843994,
+              "std_val_nll": 0.006072053062829074,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.3737567186355593,
+              "std_val_nll": 0.005894247085549129,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.346427798271179,
+              "std_val_nll": 0.010964626403295069,
+              "n_runs": 10
+            }
+          ],
+          "16.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.5601895570755007,
+              "std_val_nll": 0.009565878814005377,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.5505048513412474,
+              "std_val_nll": 0.003414695223432111,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.5273613214492796,
+              "std_val_nll": 0.016692460764333526,
+              "n_runs": 10
+            }
+          ]
+        },
+        "MLP_30-20_sigmoid_outReLU": {
+          "2.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.283219647407532,
+              "std_val_nll": 0.16633887015415064,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.2349021673202514,
+              "std_val_nll": 0.11373531861642447,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.2526333570480346,
+              "std_val_nll": 0.044792790028204854,
+              "n_runs": 10
+            }
+          ],
+          "7.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.155797743797302,
+              "std_val_nll": 0.0088961133509183,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.1560531139373778,
+              "std_val_nll": 0.015585871999274626,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.1439618110656737,
+              "std_val_nll": 0.00753525289933231,
+              "n_runs": 10
+            }
+          ],
+          "12.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.3755420207977296,
+              "std_val_nll": 0.005183112145543319,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.3725229263305665,
+              "std_val_nll": 0.002697422474120683,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.3496435642242433,
+              "std_val_nll": 0.009085794169680795,
+              "n_runs": 10
+            }
+          ],
+          "16.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.558941125869751,
+              "std_val_nll": 0.006661678334948977,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.5497610330581666,
+              "std_val_nll": 0.0038348410136875483,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.5134161949157714,
+              "std_val_nll": 0.030869395809798465,
+              "n_runs": 10
+            }
+          ]
+        },
+        "MLP_20_sigmoid_outReLU": {
+          "2.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.815750575065613,
+              "std_val_nll": 0.27508482505706816,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.7633793354034424,
+              "std_val_nll": 0.18405050281018673,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.6503275871276855,
+              "std_val_nll": 0.12199270001529436,
+              "n_runs": 10
+            }
+          ],
+          "7.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.2008827209472654,
+              "std_val_nll": 0.08659479166184471,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.1780704259872437,
+              "std_val_nll": 0.041856845247321,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.1722052574157713,
+              "std_val_nll": 0.03773514302708994,
+              "n_runs": 10
+            }
+          ],
+          "12.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.3716872453689577,
+              "std_val_nll": 0.010016681773295826,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.37165687084198,
+              "std_val_nll": 0.011974257514600265,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.352266764640808,
+              "std_val_nll": 0.011463474503392303,
+              "n_runs": 10
+            }
+          ],
+          "16.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.5528817892074587,
+              "std_val_nll": 0.005065704081012235,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.548030638694763,
+              "std_val_nll": 0.0045965644439982635,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.5301666021347047,
+              "std_val_nll": 0.009621857621700026,
+              "n_runs": 10
+            }
+          ]
+        }
+      },
+      "2": {
+        "MLP_20_sigmoid_outSigmoid_Aauto": {
+          "2.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 6.109434795379639,
+              "std_val_nll": 0.2739865010005521,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 6.067994451522827,
+              "std_val_nll": 0.5399966108183034,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 6.093823194503784,
+              "std_val_nll": 0.20766337003933524,
+              "n_runs": 10
+            }
+          ],
+          "7.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.863201355934143,
+              "std_val_nll": 0.050674785920493855,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.862434196472168,
+              "std_val_nll": 0.053788031597666236,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.858533811569214,
+              "std_val_nll": 0.0633972278733632,
+              "n_runs": 10
+            }
+          ],
+          "12.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.7544549465179444,
+              "std_val_nll": 0.04954036480493802,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.7292346239089964,
+              "std_val_nll": 0.019613826828251635,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.7479490518569945,
+              "std_val_nll": 0.03444559683168298,
+              "n_runs": 10
+            }
+          ],
+          "16.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.799222993850708,
+              "std_val_nll": 0.015717929370955484,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.8006426334381103,
+              "std_val_nll": 0.008016911526887186,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.8015769004821776,
+              "std_val_nll": 0.012904554164815295,
+              "n_runs": 10
+            }
+          ]
+        },
+        "MLP_30-20_sigmoid_outSigmoid_Aauto": {
+          "2.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 4.604693841934204,
+              "std_val_nll": 0.17394839545041485,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 4.685020208358765,
+              "std_val_nll": 0.09387700042362919,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 4.688816261291504,
+              "std_val_nll": 0.22594030700935358,
+              "n_runs": 10
+            }
+          ],
+          "7.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.6828145742416383,
+              "std_val_nll": 0.02595331783980371,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.6896611213684083,
+              "std_val_nll": 0.014160001233399253,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.6837359189987184,
+              "std_val_nll": 0.017722036746504972,
+              "n_runs": 10
+            }
+          ],
+          "12.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.742540168762207,
+              "std_val_nll": 0.006421988362103003,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.7423774719238283,
+              "std_val_nll": 0.00605299538615972,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.741641402244568,
+              "std_val_nll": 0.004050944799046644,
+              "n_runs": 10
+            }
+          ],
+          "16.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.8165962934494018,
+              "std_val_nll": 0.0023679262590637017,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.815965270996094,
+              "std_val_nll": 0.00261504396390028,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.8149582147598267,
+              "std_val_nll": 0.0017554581795831714,
+              "n_runs": 10
+            }
+          ]
+        },
+        "MLP_30-20_sigmoid_outReLU": {
+          "2.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 4.585438585281372,
+              "std_val_nll": 0.07014780814546764,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 4.689509439468384,
+              "std_val_nll": 0.11854520314280288,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 4.60111813545227,
+              "std_val_nll": 0.09255160433390391,
+              "n_runs": 10
+            }
+          ],
+          "7.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.6912004947662354,
+              "std_val_nll": 0.016202260591192053,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.6846898555755616,
+              "std_val_nll": 0.015440729217652742,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.6887733697891236,
+              "std_val_nll": 0.015865610239073766,
+              "n_runs": 10
+            }
+          ],
+          "12.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.739737057685852,
+              "std_val_nll": 0.004418124801143903,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.7396015405654905,
+              "std_val_nll": 0.0066896210245903295,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.7381282806396485,
+              "std_val_nll": 0.0039160177750423445,
+              "n_runs": 10
+            }
+          ],
+          "16.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.8161670923233033,
+              "std_val_nll": 0.003291012620478077,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.8163729667663575,
+              "std_val_nll": 0.002192951988404124,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.816171383857727,
+              "std_val_nll": 0.0022027814716231377,
+              "n_runs": 10
+            }
+          ]
+        },
+        "MLP_20_sigmoid_outReLU": {
+          "2.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 6.021601867675781,
+              "std_val_nll": 0.28957610596340105,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 6.00169734954834,
+              "std_val_nll": 0.41366498749606617,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 6.1309582710266115,
+              "std_val_nll": 0.3553865039105184,
+              "n_runs": 10
+            }
+          ],
+          "7.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.877276802062988,
+              "std_val_nll": 0.0836495117541966,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.8618217945098876,
+              "std_val_nll": 0.04661125440128279,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.8453957080841064,
+              "std_val_nll": 0.053222117957589916,
+              "n_runs": 10
+            }
+          ],
+          "12.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.743295407295227,
+              "std_val_nll": 0.02370275162705617,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.738919186592102,
+              "std_val_nll": 0.03363933042189805,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.7240710973739626,
+              "std_val_nll": 0.022967120072329858,
+              "n_runs": 10
+            }
+          ],
+          "16.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.7971944332122805,
+              "std_val_nll": 0.010692829512472506,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.7974007606506346,
+              "std_val_nll": 0.011513800381331407,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.7999020338058473,
+              "std_val_nll": 0.012271096756293932,
+              "n_runs": 10
+            }
+          ]
+        }
+      },
+      "3": {
+        "MLP_20_sigmoid_outSigmoid_Aauto": {
+          "2.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 5.310375165939331,
+              "std_val_nll": 0.16589247502721224,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 5.353631210327149,
+              "std_val_nll": 0.24734043741416345,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 5.4592643737792965,
+              "std_val_nll": 0.18445067149602679,
+              "n_runs": 10
+            }
+          ],
+          "7.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 4.076459980010986,
+              "std_val_nll": 0.03533220876673625,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 4.055893898010254,
+              "std_val_nll": 0.023041341668772728,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 4.0510951519012455,
+              "std_val_nll": 0.016082967928245005,
+              "n_runs": 10
+            }
+          ],
+          "12.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 4.001720762252807,
+              "std_val_nll": 0.011338201008080737,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 4.004671907424926,
+              "std_val_nll": 0.015431509249138501,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 4.002907180786133,
+              "std_val_nll": 0.008351592278637533,
+              "n_runs": 10
+            }
+          ],
+          "16.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 4.022507286071777,
+              "std_val_nll": 0.003383361366822491,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 4.022415733337402,
+              "std_val_nll": 0.0023366729401374246,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 4.0275053024292,
+              "std_val_nll": 0.008677926860257463,
+              "n_runs": 10
+            }
+          ]
+        },
+        "MLP_30-20_sigmoid_outSigmoid_Aauto": {
+          "2.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 4.488194370269776,
+              "std_val_nll": 0.11019289769294681,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 4.468505048751831,
+              "std_val_nll": 0.0791869761621899,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 4.507009077072143,
+              "std_val_nll": 0.059909332031659386,
+              "n_runs": 10
+            }
+          ],
+          "7.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.980165195465088,
+              "std_val_nll": 0.005115353750745889,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.9831724166870117,
+              "std_val_nll": 0.0088536261207591,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.9769055128097532,
+              "std_val_nll": 0.007414826074247569,
+              "n_runs": 10
+            }
+          ],
+          "12.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.989569878578186,
+              "std_val_nll": 0.004854756217174517,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.9893658638000487,
+              "std_val_nll": 0.0023492790777351123,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.989203429222107,
+              "std_val_nll": 0.0031667903059704014,
+              "n_runs": 10
+            }
+          ],
+          "16.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 4.019796752929688,
+              "std_val_nll": 0.0021259732458630753,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 4.017990779876709,
+              "std_val_nll": 0.001557073670796426,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 4.017703294754028,
+              "std_val_nll": 0.0021768810708449166,
+              "n_runs": 10
+            }
+          ]
+        },
+        "MLP_30-20_sigmoid_outReLU": {
+          "2.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 4.4647904396057125,
+              "std_val_nll": 0.08164499527061853,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 4.459203910827637,
+              "std_val_nll": 0.10769116613775609,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 4.50281777381897,
+              "std_val_nll": 0.09278388953859001,
+              "n_runs": 10
+            }
+          ],
+          "7.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.981871247291565,
+              "std_val_nll": 0.009485188008485457,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.983311891555786,
+              "std_val_nll": 0.0071109960166682905,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.9789592027664185,
+              "std_val_nll": 0.00912641640360458,
+              "n_runs": 10
+            }
+          ],
+          "12.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 3.992258810997009,
+              "std_val_nll": 0.0035561864819752096,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 3.9901924610137938,
+              "std_val_nll": 0.004276677736921698,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 3.9895156383514405,
+              "std_val_nll": 0.004850776696740962,
+              "n_runs": 10
+            }
+          ],
+          "16.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 4.019004678726196,
+              "std_val_nll": 0.0018056506958117578,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 4.020188236236573,
+              "std_val_nll": 0.0018340089281327523,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 4.018373441696167,
+              "std_val_nll": 0.0009462929324132251,
+              "n_runs": 10
+            }
+          ]
+        },
+        "MLP_20_sigmoid_outReLU": {
+          "2.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 5.414381837844848,
+              "std_val_nll": 0.1261100152770655,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 5.465582609176636,
+              "std_val_nll": 0.1685111316066949,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 5.457694816589355,
+              "std_val_nll": 0.15491246720713617,
+              "n_runs": 10
+            }
+          ],
+          "7.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 4.081373453140259,
+              "std_val_nll": 0.04503211307148818,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 4.067616367340088,
+              "std_val_nll": 0.02768691350918556,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 4.05565915107727,
+              "std_val_nll": 0.021291984247453852,
+              "n_runs": 10
+            }
+          ],
+          "12.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 4.008028674125671,
+              "std_val_nll": 0.0077872966229687954,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 4.013363146781922,
+              "std_val_nll": 0.018600190869080834,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 4.007251763343811,
+              "std_val_nll": 0.011258259697548827,
+              "n_runs": 10
+            }
+          ],
+          "16.0": [
+            {
+              "lambda": 0.0,
+              "mean_val_nll": 4.026270580291748,
+              "std_val_nll": 0.006901755570131093,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.01,
+              "mean_val_nll": 4.024922037124634,
+              "std_val_nll": 0.004627415615345584,
+              "n_runs": 10
+            },
+            {
+              "lambda": 0.1,
+              "mean_val_nll": 4.026417255401611,
+              "std_val_nll": 0.005698245822481973,
+              "n_runs": 10
+            }
+          ]
+        }
+      }
+    },
+    "delta_table": [
+      {
+        "mixture": 1,
+        "architecture": "MLP_20_sigmoid_outSigmoid_Aauto",
+        "h1": 2.0,
+        "val_nll_lambda0": 3.7925566911697386,
+        "best_lambda": 0.01,
+        "best_val_nll": 3.748849129676819,
+        "delta_best_minus_0": -0.043707561492919655,
+        "worst_lambda": 0.1,
+        "worst_val_nll": 3.8158211708068848,
+        "delta_worst_minus_0": 0.023264479637146174
+      },
+      {
+        "mixture": 1,
+        "architecture": "MLP_20_sigmoid_outSigmoid_Aauto",
+        "h1": 7.0,
+        "val_nll_lambda0": 3.1611469745635987,
+        "best_lambda": 0.0,
+        "best_val_nll": 3.1611469745635987,
+        "delta_best_minus_0": 0.0,
+        "worst_lambda": 0.1,
+        "worst_val_nll": 3.1915844917297362,
+        "delta_worst_minus_0": 0.030437517166137518
+      },
+      {
+        "mixture": 1,
+        "architecture": "MLP_20_sigmoid_outSigmoid_Aauto",
+        "h1": 12.0,
+        "val_nll_lambda0": 3.368601155281067,
+        "best_lambda": 0.1,
+        "best_val_nll": 3.3575644493103027,
+        "delta_best_minus_0": -0.011036705970764338,
+        "worst_lambda": 0.01,
+        "worst_val_nll": 3.3753737688064573,
+        "delta_worst_minus_0": 0.00677261352539027
+      },
+      {
+        "mixture": 1,
+        "architecture": "MLP_20_sigmoid_outSigmoid_Aauto",
+        "h1": 16.0,
+        "val_nll_lambda0": 3.5600890159606933,
+        "best_lambda": 0.1,
+        "best_val_nll": 3.5294296741485596,
+        "delta_best_minus_0": -0.0306593418121337,
+        "worst_lambda": 0.0,
+        "worst_val_nll": 3.5600890159606933,
+        "delta_worst_minus_0": 0.0
+      },
+      {
+        "mixture": 1,
+        "architecture": "MLP_30-20_sigmoid_outSigmoid_Aauto",
+        "h1": 2.0,
+        "val_nll_lambda0": 3.2529457569122315,
+        "best_lambda": 0.1,
+        "best_val_nll": 3.2383230924606323,
+        "delta_best_minus_0": -0.01462266445159921,
+        "worst_lambda": 0.01,
+        "worst_val_nll": 3.276067018508911,
+        "delta_worst_minus_0": 0.0231212615966796
+      },
+      {
+        "mixture": 1,
+        "architecture": "MLP_30-20_sigmoid_outSigmoid_Aauto",
+        "h1": 7.0,
+        "val_nll_lambda0": 3.155786561965942,
+        "best_lambda": 0.1,
+        "best_val_nll": 3.147469425201416,
+        "delta_best_minus_0": -0.008317136764526278,
+        "worst_lambda": 0.01,
+        "worst_val_nll": 3.1565845251083373,
+        "delta_worst_minus_0": 0.0007979631423951083
+      },
+      {
+        "mixture": 1,
+        "architecture": "MLP_30-20_sigmoid_outSigmoid_Aauto",
+        "h1": 12.0,
+        "val_nll_lambda0": 3.3765127658843994,
+        "best_lambda": 0.1,
+        "best_val_nll": 3.346427798271179,
+        "delta_best_minus_0": -0.030084967613220215,
+        "worst_lambda": 0.0,
+        "worst_val_nll": 3.3765127658843994,
+        "delta_worst_minus_0": 0.0
+      },
+      {
+        "mixture": 1,
+        "architecture": "MLP_30-20_sigmoid_outSigmoid_Aauto",
+        "h1": 16.0,
+        "val_nll_lambda0": 3.5601895570755007,
+        "best_lambda": 0.1,
+        "best_val_nll": 3.5273613214492796,
+        "delta_best_minus_0": -0.03282823562622106,
+        "worst_lambda": 0.0,
+        "worst_val_nll": 3.5601895570755007,
+        "delta_worst_minus_0": 0.0
+      },
+      {
+        "mixture": 1,
+        "architecture": "MLP_30-20_sigmoid_outReLU",
+        "h1": 2.0,
+        "val_nll_lambda0": 3.283219647407532,
+        "best_lambda": 0.01,
+        "best_val_nll": 3.2349021673202514,
+        "delta_best_minus_0": -0.04831748008728054,
+        "worst_lambda": 0.0,
+        "worst_val_nll": 3.283219647407532,
+        "delta_worst_minus_0": 0.0
+      },
+      {
+        "mixture": 1,
+        "architecture": "MLP_30-20_sigmoid_outReLU",
+        "h1": 7.0,
+        "val_nll_lambda0": 3.155797743797302,
+        "best_lambda": 0.1,
+        "best_val_nll": 3.1439618110656737,
+        "delta_best_minus_0": -0.011835932731628418,
+        "worst_lambda": 0.01,
+        "worst_val_nll": 3.1560531139373778,
+        "delta_worst_minus_0": 0.0002553701400755948
+      },
+      {
+        "mixture": 1,
+        "architecture": "MLP_30-20_sigmoid_outReLU",
+        "h1": 12.0,
+        "val_nll_lambda0": 3.3755420207977296,
+        "best_lambda": 0.1,
+        "best_val_nll": 3.3496435642242433,
+        "delta_best_minus_0": -0.025898456573486328,
+        "worst_lambda": 0.0,
+        "worst_val_nll": 3.3755420207977296,
+        "delta_worst_minus_0": 0.0
+      },
+      {
+        "mixture": 1,
+        "architecture": "MLP_30-20_sigmoid_outReLU",
+        "h1": 16.0,
+        "val_nll_lambda0": 3.558941125869751,
+        "best_lambda": 0.1,
+        "best_val_nll": 3.5134161949157714,
+        "delta_best_minus_0": -0.04552493095397958,
+        "worst_lambda": 0.0,
+        "worst_val_nll": 3.558941125869751,
+        "delta_worst_minus_0": 0.0
+      },
+      {
+        "mixture": 1,
+        "architecture": "MLP_20_sigmoid_outReLU",
+        "h1": 2.0,
+        "val_nll_lambda0": 3.815750575065613,
+        "best_lambda": 0.1,
+        "best_val_nll": 3.6503275871276855,
+        "delta_best_minus_0": -0.16542298793792742,
+        "worst_lambda": 0.0,
+        "worst_val_nll": 3.815750575065613,
+        "delta_worst_minus_0": 0.0
+      },
+      {
+        "mixture": 1,
+        "architecture": "MLP_20_sigmoid_outReLU",
+        "h1": 7.0,
+        "val_nll_lambda0": 3.2008827209472654,
+        "best_lambda": 0.1,
+        "best_val_nll": 3.1722052574157713,
+        "delta_best_minus_0": -0.02867746353149414,
+        "worst_lambda": 0.0,
+        "worst_val_nll": 3.2008827209472654,
+        "delta_worst_minus_0": 0.0
+      },
+      {
+        "mixture": 1,
+        "architecture": "MLP_20_sigmoid_outReLU",
+        "h1": 12.0,
+        "val_nll_lambda0": 3.3716872453689577,
+        "best_lambda": 0.1,
+        "best_val_nll": 3.352266764640808,
+        "delta_best_minus_0": -0.019420480728149503,
+        "worst_lambda": 0.0,
+        "worst_val_nll": 3.3716872453689577,
+        "delta_worst_minus_0": 0.0
+      },
+      {
+        "mixture": 1,
+        "architecture": "MLP_20_sigmoid_outReLU",
+        "h1": 16.0,
+        "val_nll_lambda0": 3.5528817892074587,
+        "best_lambda": 0.1,
+        "best_val_nll": 3.5301666021347047,
+        "delta_best_minus_0": -0.022715187072753995,
+        "worst_lambda": 0.0,
+        "worst_val_nll": 3.5528817892074587,
+        "delta_worst_minus_0": 0.0
+      },
+      {
+        "mixture": 2,
+        "architecture": "MLP_20_sigmoid_outSigmoid_Aauto",
+        "h1": 2.0,
+        "val_nll_lambda0": 6.109434795379639,
+        "best_lambda": 0.01,
+        "best_val_nll": 6.067994451522827,
+        "delta_best_minus_0": -0.041440343856812056,
+        "worst_lambda": 0.0,
+        "worst_val_nll": 6.109434795379639,
+        "delta_worst_minus_0": 0.0
+      },
+      {
+        "mixture": 2,
+        "architecture": "MLP_20_sigmoid_outSigmoid_Aauto",
+        "h1": 7.0,
+        "val_nll_lambda0": 3.863201355934143,
+        "best_lambda": 0.1,
+        "best_val_nll": 3.858533811569214,
+        "delta_best_minus_0": -0.00466754436492911,
+        "worst_lambda": 0.0,
+        "worst_val_nll": 3.863201355934143,
+        "delta_worst_minus_0": 0.0
+      },
+      {
+        "mixture": 2,
+        "architecture": "MLP_20_sigmoid_outSigmoid_Aauto",
+        "h1": 12.0,
+        "val_nll_lambda0": 3.7544549465179444,
+        "best_lambda": 0.01,
+        "best_val_nll": 3.7292346239089964,
+        "delta_best_minus_0": -0.02522032260894802,
+        "worst_lambda": 0.0,
+        "worst_val_nll": 3.7544549465179444,
+        "delta_worst_minus_0": 0.0
+      },
+      {
+        "mixture": 2,
+        "architecture": "MLP_20_sigmoid_outSigmoid_Aauto",
+        "h1": 16.0,
+        "val_nll_lambda0": 3.799222993850708,
+        "best_lambda": 0.0,
+        "best_val_nll": 3.799222993850708,
+        "delta_best_minus_0": 0.0,
+        "worst_lambda": 0.1,
+        "worst_val_nll": 3.8015769004821776,
+        "delta_worst_minus_0": 0.0023539066314697266
+      },
+      {
+        "mixture": 2,
+        "architecture": "MLP_30-20_sigmoid_outSigmoid_Aauto",
+        "h1": 2.0,
+        "val_nll_lambda0": 4.604693841934204,
+        "best_lambda": 0.0,
+        "best_val_nll": 4.604693841934204,
+        "delta_best_minus_0": 0.0,
+        "worst_lambda": 0.1,
+        "worst_val_nll": 4.688816261291504,
+        "delta_worst_minus_0": 0.0841224193572998
+      },
+      {
+        "mixture": 2,
+        "architecture": "MLP_30-20_sigmoid_outSigmoid_Aauto",
+        "h1": 7.0,
+        "val_nll_lambda0": 3.6828145742416383,
+        "best_lambda": 0.0,
+        "best_val_nll": 3.6828145742416383,
+        "delta_best_minus_0": 0.0,
+        "worst_lambda": 0.01,
+        "worst_val_nll": 3.6896611213684083,
+        "delta_worst_minus_0": 0.0068465471267700195
+      },
+      {
+        "mixture": 2,
+        "architecture": "MLP_30-20_sigmoid_outSigmoid_Aauto",
+        "h1": 12.0,
+        "val_nll_lambda0": 3.742540168762207,
+        "best_lambda": 0.1,
+        "best_val_nll": 3.741641402244568,
+        "delta_best_minus_0": -0.0008987665176389825,
+        "worst_lambda": 0.0,
+        "worst_val_nll": 3.742540168762207,
+        "delta_worst_minus_0": 0.0
+      },
+      {
+        "mixture": 2,
+        "architecture": "MLP_30-20_sigmoid_outSigmoid_Aauto",
+        "h1": 16.0,
+        "val_nll_lambda0": 3.8165962934494018,
+        "best_lambda": 0.1,
+        "best_val_nll": 3.8149582147598267,
+        "delta_best_minus_0": -0.0016380786895751065,
+        "worst_lambda": 0.0,
+        "worst_val_nll": 3.8165962934494018,
+        "delta_worst_minus_0": 0.0
+      },
+      {
+        "mixture": 2,
+        "architecture": "MLP_30-20_sigmoid_outReLU",
+        "h1": 2.0,
+        "val_nll_lambda0": 4.585438585281372,
+        "best_lambda": 0.0,
+        "best_val_nll": 4.585438585281372,
+        "delta_best_minus_0": 0.0,
+        "worst_lambda": 0.01,
+        "worst_val_nll": 4.689509439468384,
+        "delta_worst_minus_0": 0.1040708541870119
+      },
+      {
+        "mixture": 2,
+        "architecture": "MLP_30-20_sigmoid_outReLU",
+        "h1": 7.0,
+        "val_nll_lambda0": 3.6912004947662354,
+        "best_lambda": 0.01,
+        "best_val_nll": 3.6846898555755616,
+        "delta_best_minus_0": -0.006510639190673739,
+        "worst_lambda": 0.0,
+        "worst_val_nll": 3.6912004947662354,
+        "delta_worst_minus_0": 0.0
+      },
+      {
+        "mixture": 2,
+        "architecture": "MLP_30-20_sigmoid_outReLU",
+        "h1": 12.0,
+        "val_nll_lambda0": 3.739737057685852,
+        "best_lambda": 0.1,
+        "best_val_nll": 3.7381282806396485,
+        "delta_best_minus_0": -0.0016087770462034356,
+        "worst_lambda": 0.0,
+        "worst_val_nll": 3.739737057685852,
+        "delta_worst_minus_0": 0.0
+      },
+      {
+        "mixture": 2,
+        "architecture": "MLP_30-20_sigmoid_outReLU",
+        "h1": 16.0,
+        "val_nll_lambda0": 3.8161670923233033,
+        "best_lambda": 0.0,
+        "best_val_nll": 3.8161670923233033,
+        "delta_best_minus_0": 0.0,
+        "worst_lambda": 0.01,
+        "worst_val_nll": 3.8163729667663575,
+        "delta_worst_minus_0": 0.00020587444305419922
+      },
+      {
+        "mixture": 2,
+        "architecture": "MLP_20_sigmoid_outReLU",
+        "h1": 2.0,
+        "val_nll_lambda0": 6.021601867675781,
+        "best_lambda": 0.01,
+        "best_val_nll": 6.00169734954834,
+        "delta_best_minus_0": -0.01990451812744176,
+        "worst_lambda": 0.1,
+        "worst_val_nll": 6.1309582710266115,
+        "delta_worst_minus_0": 0.10935640335083008
+      },
+      {
+        "mixture": 2,
+        "architecture": "MLP_20_sigmoid_outReLU",
+        "h1": 7.0,
+        "val_nll_lambda0": 3.877276802062988,
+        "best_lambda": 0.1,
+        "best_val_nll": 3.8453957080841064,
+        "delta_best_minus_0": -0.031881093978881836,
+        "worst_lambda": 0.0,
+        "worst_val_nll": 3.877276802062988,
+        "delta_worst_minus_0": 0.0
+      },
+      {
+        "mixture": 2,
+        "architecture": "MLP_20_sigmoid_outReLU",
+        "h1": 12.0,
+        "val_nll_lambda0": 3.743295407295227,
+        "best_lambda": 0.1,
+        "best_val_nll": 3.7240710973739626,
+        "delta_best_minus_0": -0.01922430992126456,
+        "worst_lambda": 0.0,
+        "worst_val_nll": 3.743295407295227,
+        "delta_worst_minus_0": 0.0
+      },
+      {
+        "mixture": 2,
+        "architecture": "MLP_20_sigmoid_outReLU",
+        "h1": 16.0,
+        "val_nll_lambda0": 3.7971944332122805,
+        "best_lambda": 0.0,
+        "best_val_nll": 3.7971944332122805,
+        "delta_best_minus_0": 0.0,
+        "worst_lambda": 0.1,
+        "worst_val_nll": 3.7999020338058473,
+        "delta_worst_minus_0": 0.0027076005935668945
+      },
+      {
+        "mixture": 3,
+        "architecture": "MLP_20_sigmoid_outSigmoid_Aauto",
+        "h1": 2.0,
+        "val_nll_lambda0": 5.310375165939331,
+        "best_lambda": 0.0,
+        "best_val_nll": 5.310375165939331,
+        "delta_best_minus_0": 0.0,
+        "worst_lambda": 0.1,
+        "worst_val_nll": 5.4592643737792965,
+        "delta_worst_minus_0": 0.1488892078399653
+      },
+      {
+        "mixture": 3,
+        "architecture": "MLP_20_sigmoid_outSigmoid_Aauto",
+        "h1": 7.0,
+        "val_nll_lambda0": 4.076459980010986,
+        "best_lambda": 0.1,
+        "best_val_nll": 4.0510951519012455,
+        "delta_best_minus_0": -0.0253648281097405,
+        "worst_lambda": 0.0,
+        "worst_val_nll": 4.076459980010986,
+        "delta_worst_minus_0": 0.0
+      },
+      {
+        "mixture": 3,
+        "architecture": "MLP_20_sigmoid_outSigmoid_Aauto",
+        "h1": 12.0,
+        "val_nll_lambda0": 4.001720762252807,
+        "best_lambda": 0.0,
+        "best_val_nll": 4.001720762252807,
+        "delta_best_minus_0": 0.0,
+        "worst_lambda": 0.01,
+        "worst_val_nll": 4.004671907424926,
+        "delta_worst_minus_0": 0.0029511451721191406
+      },
+      {
+        "mixture": 3,
+        "architecture": "MLP_20_sigmoid_outSigmoid_Aauto",
+        "h1": 16.0,
+        "val_nll_lambda0": 4.022507286071777,
+        "best_lambda": 0.01,
+        "best_val_nll": 4.022415733337402,
+        "delta_best_minus_0": -9.1552734375e-05,
+        "worst_lambda": 0.1,
+        "worst_val_nll": 4.0275053024292,
+        "delta_worst_minus_0": 0.0049980163574225855
+      },
+      {
+        "mixture": 3,
+        "architecture": "MLP_30-20_sigmoid_outSigmoid_Aauto",
+        "h1": 2.0,
+        "val_nll_lambda0": 4.488194370269776,
+        "best_lambda": 0.01,
+        "best_val_nll": 4.468505048751831,
+        "delta_best_minus_0": -0.019689321517944336,
+        "worst_lambda": 0.1,
+        "worst_val_nll": 4.507009077072143,
+        "delta_worst_minus_0": 0.01881470680236763
+      },
+      {
+        "mixture": 3,
+        "architecture": "MLP_30-20_sigmoid_outSigmoid_Aauto",
+        "h1": 7.0,
+        "val_nll_lambda0": 3.980165195465088,
+        "best_lambda": 0.1,
+        "best_val_nll": 3.9769055128097532,
+        "delta_best_minus_0": -0.003259682655334828,
+        "worst_lambda": 0.01,
+        "worst_val_nll": 3.9831724166870117,
+        "delta_worst_minus_0": 0.0030072212219236505
+      },
+      {
+        "mixture": 3,
+        "architecture": "MLP_30-20_sigmoid_outSigmoid_Aauto",
+        "h1": 12.0,
+        "val_nll_lambda0": 3.989569878578186,
+        "best_lambda": 0.1,
+        "best_val_nll": 3.989203429222107,
+        "delta_best_minus_0": -0.00036644935607910156,
+        "worst_lambda": 0.0,
+        "worst_val_nll": 3.989569878578186,
+        "delta_worst_minus_0": 0.0
+      },
+      {
+        "mixture": 3,
+        "architecture": "MLP_30-20_sigmoid_outSigmoid_Aauto",
+        "h1": 16.0,
+        "val_nll_lambda0": 4.019796752929688,
+        "best_lambda": 0.1,
+        "best_val_nll": 4.017703294754028,
+        "delta_best_minus_0": -0.002093458175659535,
+        "worst_lambda": 0.0,
+        "worst_val_nll": 4.019796752929688,
+        "delta_worst_minus_0": 0.0
+      },
+      {
+        "mixture": 3,
+        "architecture": "MLP_30-20_sigmoid_outReLU",
+        "h1": 2.0,
+        "val_nll_lambda0": 4.4647904396057125,
+        "best_lambda": 0.01,
+        "best_val_nll": 4.459203910827637,
+        "delta_best_minus_0": -0.005586528778075639,
+        "worst_lambda": 0.1,
+        "worst_val_nll": 4.50281777381897,
+        "delta_worst_minus_0": 0.038027334213257546
+      },
+      {
+        "mixture": 3,
+        "architecture": "MLP_30-20_sigmoid_outReLU",
+        "h1": 7.0,
+        "val_nll_lambda0": 3.981871247291565,
+        "best_lambda": 0.1,
+        "best_val_nll": 3.9789592027664185,
+        "delta_best_minus_0": -0.0029120445251464844,
+        "worst_lambda": 0.01,
+        "worst_val_nll": 3.983311891555786,
+        "delta_worst_minus_0": 0.0014406442642211914
+      },
+      {
+        "mixture": 3,
+        "architecture": "MLP_30-20_sigmoid_outReLU",
+        "h1": 12.0,
+        "val_nll_lambda0": 3.992258810997009,
+        "best_lambda": 0.1,
+        "best_val_nll": 3.9895156383514405,
+        "delta_best_minus_0": -0.00274317264556867,
+        "worst_lambda": 0.0,
+        "worst_val_nll": 3.992258810997009,
+        "delta_worst_minus_0": 0.0
+      },
+      {
+        "mixture": 3,
+        "architecture": "MLP_30-20_sigmoid_outReLU",
+        "h1": 16.0,
+        "val_nll_lambda0": 4.019004678726196,
+        "best_lambda": 0.1,
+        "best_val_nll": 4.018373441696167,
+        "delta_best_minus_0": -0.000631237030028764,
+        "worst_lambda": 0.01,
+        "worst_val_nll": 4.020188236236573,
+        "delta_worst_minus_0": 0.001183557510376687
+      },
+      {
+        "mixture": 3,
+        "architecture": "MLP_20_sigmoid_outReLU",
+        "h1": 2.0,
+        "val_nll_lambda0": 5.414381837844848,
+        "best_lambda": 0.0,
+        "best_val_nll": 5.414381837844848,
+        "delta_best_minus_0": 0.0,
+        "worst_lambda": 0.01,
+        "worst_val_nll": 5.465582609176636,
+        "delta_worst_minus_0": 0.051200771331787465
+      },
+      {
+        "mixture": 3,
+        "architecture": "MLP_20_sigmoid_outReLU",
+        "h1": 7.0,
+        "val_nll_lambda0": 4.081373453140259,
+        "best_lambda": 0.1,
+        "best_val_nll": 4.05565915107727,
+        "delta_best_minus_0": -0.025714302062988637,
+        "worst_lambda": 0.0,
+        "worst_val_nll": 4.081373453140259,
+        "delta_worst_minus_0": 0.0
+      },
+      {
+        "mixture": 3,
+        "architecture": "MLP_20_sigmoid_outReLU",
+        "h1": 12.0,
+        "val_nll_lambda0": 4.008028674125671,
+        "best_lambda": 0.1,
+        "best_val_nll": 4.007251763343811,
+        "delta_best_minus_0": -0.0007769107818598187,
+        "worst_lambda": 0.01,
+        "worst_val_nll": 4.013363146781922,
+        "delta_worst_minus_0": 0.005334472656250533
+      },
+      {
+        "mixture": 3,
+        "architecture": "MLP_20_sigmoid_outReLU",
+        "h1": 16.0,
+        "val_nll_lambda0": 4.026270580291748,
+        "best_lambda": 0.01,
+        "best_val_nll": 4.024922037124634,
+        "delta_best_minus_0": -0.0013485431671140802,
+        "worst_lambda": 0.1,
+        "worst_val_nll": 4.026417255401611,
+        "delta_worst_minus_0": 0.00014667510986310361
+      }
+    ],
+    "mixture_summary": {
+      "1": {
+        "n_configs": 16.0,
+        "prop_best_improves": 0.9375,
+        "mean_best_delta": -0.033691845834255274,
+        "median_best_delta": -0.027287960052490234,
+        "min_best_delta": -0.16542298793792742,
+        "max_best_delta": 0.0,
+        "q10_best_delta": -0.04692120552063006,
+        "q90_best_delta": -0.009676921367645308,
+        "prop_any_worsens": 0.375,
+        "mean_worst_delta": 0.0052905753254890164,
+        "max_worst_delta": 0.030437517166137518
+      },
+      "2": {
+        "n_configs": 16.0,
+        "prop_best_improves": 0.625,
+        "mean_best_delta": -0.009562149643898038,
+        "median_best_delta": -0.001623427867889271,
+        "min_best_delta": -0.041440343856812056,
+        "max_best_delta": 0.0,
+        "q10_best_delta": -0.028550708293914928,
+        "q90_best_delta": 0.0,
+        "prop_any_worsens": 0.4375,
+        "mean_worst_delta": 0.019353975355625164,
+        "max_worst_delta": 0.10935640335083008
+      },
+      "3": {
+        "n_configs": 16.0,
+        "prop_best_improves": 0.8125,
+        "mean_best_delta": -0.005661126971244712,
+        "median_best_delta": -0.0017210006713868076,
+        "min_best_delta": -0.025714302062988637,
+        "max_best_delta": 0.0,
+        "q10_best_delta": -0.022527074813842418,
+        "q90_best_delta": 0.0,
+        "prop_any_worsens": 0.6875,
+        "mean_worst_delta": 0.017249609529972176,
+        "max_worst_delta": 0.1488892078399653
+      }
+    }
+  },
+  "latex_addenda_by_label": {
+    "fig:parzen-errors-1": "\\par\\noindent\\textbf{Evidence.} From the sweep in \\texttt{logs/pw_errors_mixture1.csv}, the global minimizers are $\\arg\\min_{(n,h_1)}\\mathrm{MSE}=(n=174,\\ h_1=5.126)$ with $\\mathrm{MSE}=1.46e-05$, and $\\arg\\min_{(n,h_1)}\\mathrm{ValNLL}=(n=70,\\ h_1=2.112)$ with $\\mathrm{ValNLL}=2.262$. Fitting $\\log\\mathrm{MSE}(h_1)=a+bh_1$ on the lower-bandwidth side ($h_1<h_1^*$) gives $b=-0.965$ ($R^2=0.952$), whereas on the oversmoothed side ($h_1>h_1^*$) it gives $b=0.19$ ($R^2=0.938$), quantifying the steeper rise under undersmoothing. At $h_1=h_1^*$, a log--log fit $\\log\\mathrm{MSE}=c+\\alpha\\log n$ yields $\\alpha=-0.889$ ($R^2=0.515$), i.e. $\\mathrm{MSE}\\propto n^{-0.889}$ on this slice. ",
+    "fig:parzen-errors-2": "\\par\\noindent\\textbf{Evidence.} From the sweep in \\texttt{logs/pw_errors_mixture2.csv}, the global minimizers are $\\arg\\min_{(n,h_1)}\\mathrm{MSE}=(n=193,\\ h_1=5.536)$ with $\\mathrm{MSE}=1.89e-05$, and $\\arg\\min_{(n,h_1)}\\mathrm{ValNLL}=(n=70,\\ h_1=3.192)$ with $\\mathrm{ValNLL}=3.327$. Fitting $\\log\\mathrm{MSE}(h_1)=a+bh_1$ on the lower-bandwidth side ($h_1<h_1^*$) gives $b=-0.823$ ($R^2=0.958$), whereas on the oversmoothed side ($h_1>h_1^*$) it gives $b=0.123$ ($R^2=0.94$), quantifying the steeper rise under undersmoothing. At $h_1=h_1^*$, a log--log fit $\\log\\mathrm{MSE}=c+\\alpha\\log n$ yields $\\alpha=-0.821$ ($R^2=0.749$), i.e. $\\mathrm{MSE}\\propto n^{-0.821}$ on this slice. ",
+    "fig:parzen-errors-3": "\\par\\noindent\\textbf{Evidence.} From the sweep in \\texttt{logs/pw_errors_mixture3.csv}, the global minimizers are $\\arg\\min_{(n,h_1)}\\mathrm{MSE}=(n=169,\\ h_1=7.484)$ with $\\mathrm{MSE}=1.71e-05$, and $\\arg\\min_{(n,h_1)}\\mathrm{ValNLL}=(n=78,\\ h_1=3.747)$ with $\\mathrm{ValNLL}=3.763$. Fitting $\\log\\mathrm{MSE}(h_1)=a+bh_1$ on the lower-bandwidth side ($h_1<h_1^*$) gives $b=-0.538$ ($R^2=0.898$), whereas on the oversmoothed side ($h_1>h_1^*$) it gives $b=0.079$ ($R^2=0.983$), quantifying the steeper rise under undersmoothing. At $h_1=h_1^*$, a log--log fit $\\log\\mathrm{MSE}=c+\\alpha\\log n$ yields $\\alpha=-0.438$ ($R^2=0.528$), i.e. $\\mathrm{MSE}\\propto n^{-0.438}$ on this slice. ",
+    "fig:parzen-overlay-1": "\\par\\noindent\\textbf{Evidence.} The configuration selected by minimizing grid MSE uses $n=174$ and $h_1=5.126$ (grid $\\mathrm{MSE}=1.46e-05$), while the ValNLL-minimizer uses $n=70$ and $h_1=2.112$ (ValNLL $=2.262$). In particular, $n_{\\mathrm{MSE}}-n_{\\mathrm{ValNLL}}=104$ and $h_{1,\\mathrm{MSE}}-h_{1,\\mathrm{ValNLL}}=3.014$.",
+    "fig:parzen-overlay-2": "\\par\\noindent\\textbf{Evidence.} The configuration selected by minimizing grid MSE uses $n=193$ and $h_1=5.536$ (grid $\\mathrm{MSE}=1.89e-05$), while the ValNLL-minimizer uses $n=70$ and $h_1=3.192$ (ValNLL $=3.327$). In particular, $n_{\\mathrm{MSE}}-n_{\\mathrm{ValNLL}}=123$ and $h_{1,\\mathrm{MSE}}-h_{1,\\mathrm{ValNLL}}=2.344$.",
+    "fig:parzen-overlay-3": "\\par\\noindent\\textbf{Evidence.} The configuration selected by minimizing grid MSE uses $n=169$ and $h_1=7.484$ (grid $\\mathrm{MSE}=1.71e-05$), while the ValNLL-minimizer uses $n=78$ and $h_1=3.747$ (ValNLL $=3.763$). In particular, $n_{\\mathrm{MSE}}-n_{\\mathrm{ValNLL}}=91$ and $h_{1,\\mathrm{MSE}}-h_{1,\\mathrm{ValNLL}}=3.737$.",
+    "fig:pnn-error-1": "\\par\\noindent\\textbf{Evidence.} On the bandwidth grid $h_1\\in\\{2, 7, 12, 16\\}$ from \\texttt{results/sweep_results_mixture1.json}, the KDE reference attains its minimum grid-MSE at $h_1^{\\mathrm{KDE}}=7$. Across PNN architectures, the median MSE-optimal bandwidth is $\\mathrm{median}(h_1^{\\mathrm{PNN}})=7$ on this grid. At $h_1=2$ (undersmoothed slice), the best architecture (MLP_20_sigmoid_outSigmoid_Aauto) changes grid-MSE by $\\Delta=\\mathbb{E}[\\mathrm{MSE}_\\mathrm{PNN}-\\mathrm{MSE}_\\mathrm{KDE}]=-0.000155$ with one-sample t-test $t=-4.257$ (p=0.002, n=10). Across all (architecture, $h_1$) points, ValNLL vs grid-MSE alignment is $\\rho=0.756$ (p=0.000706, n=16).",
+    "fig:pnn-error-2": "\\par\\noindent\\textbf{Evidence.} On the bandwidth grid $h_1\\in\\{2, 7, 12, 16\\}$ from \\texttt{results/sweep_results_mixture2.json}, the KDE reference attains its minimum grid-MSE at $h_1^{\\mathrm{KDE}}=7$. Across PNN architectures, the median MSE-optimal bandwidth is $\\mathrm{median}(h_1^{\\mathrm{PNN}})=9.5$ on this grid. At $h_1=2$ (undersmoothed slice), the best architecture (MLP_30-20_sigmoid_outSigmoid_Aauto) changes grid-MSE by $\\Delta=\\mathbb{E}[\\mathrm{MSE}_\\mathrm{PNN}-\\mathrm{MSE}_\\mathrm{KDE}]=-7.31e-05$ with one-sample t-test $t=-13.245$ (p=3.31e-07, n=10). Across all (architecture, $h_1$) points, ValNLL vs grid-MSE alignment is $\\rho=0.812$ (p=0.000134, n=16).",
+    "fig:pnn-error-3": "\\par\\noindent\\textbf{Evidence.} On the bandwidth grid $h_1\\in\\{2, 7, 12, 16\\}$ from \\texttt{results/sweep_results_mixture3.json}, the KDE reference attains its minimum grid-MSE at $h_1^{\\mathrm{KDE}}=12$. Across PNN architectures, the median MSE-optimal bandwidth is $\\mathrm{median}(h_1^{\\mathrm{PNN}})=9.5$ on this grid. At $h_1=2$ (undersmoothed slice), the best architecture (MLP_30-20_sigmoid_outReLU) changes grid-MSE by $\\Delta=\\mathbb{E}[\\mathrm{MSE}_\\mathrm{PNN}-\\mathrm{MSE}_\\mathrm{KDE}]=-9.47e-05$ with one-sample t-test $t=-13.274$ (p=3.25e-07, n=10). Across all (architecture, $h_1$) points, ValNLL vs grid-MSE alignment is $\\rho=0.935$ (p=1.07e-07, n=16).",
+    "fig:pnn-overlay-1": "\\par\\noindent\\textbf{Evidence.} Per-architecture ValNLL selection yields (best) MLP_30-20_sigmoid_outSigmoid_Aauto at $h_1=2$ with ValNLL $=3.06$ and grid-MSE $=0.000239$; (worst) MLP_20_sigmoid_outSigmoid_Aauto at $h_1=7$ with ValNLL $=3.14$. At the selected $h_1=2$, KDE has grid-MSE $=0.000331$, so $\\Delta\\mathrm{MSE}=\\mathrm{MSE}_\\mathrm{PNN}-\\mathrm{MSE}_\\mathrm{KDE}=-9.21e-05$.",
+    "fig:pnn-overlay-2": "\\par\\noindent\\textbf{Evidence.} Per-architecture ValNLL selection yields (best) MLP_30-20_sigmoid_outSigmoid_Aauto at $h_1=7$ with ValNLL $=3.649$ and grid-MSE $=1.83e-05$; (worst) MLP_20_sigmoid_outReLU at $h_1=12$ with ValNLL $=3.72$. At the selected $h_1=7$, KDE has grid-MSE $=1.92e-05$, so $\\Delta\\mathrm{MSE}=\\mathrm{MSE}_\\mathrm{PNN}-\\mathrm{MSE}_\\mathrm{KDE}=-8.81e-07$.",
+    "fig:pnn-overlay-3": "\\par\\noindent\\textbf{Evidence.} Per-architecture ValNLL selection yields (best) MLP_30-20_sigmoid_outReLU at $h_1=7$ with ValNLL $=3.97$ and grid-MSE $=1.31e-05$; (worst) MLP_20_sigmoid_outReLU at $h_1=12$ with ValNLL $=3.991$. At the selected $h_1=7$, KDE has grid-MSE $=1.42e-05$, so $\\Delta\\mathrm{MSE}=\\mathrm{MSE}_\\mathrm{PNN}-\\mathrm{MSE}_\\mathrm{KDE}=-1.15e-06$.",
+    "fig:pnn-boundary-1": "\\par\\noindent\\textbf{Evidence.} Using \\texttt{results/boundary_penalty_lambda_sweep_cache.csv}, across all cached (architecture,$h_1$) settings for mixture 1, the best $\\lambda$ improves mean ValNLL relative to $\\lambda=0$ in 93.75\\% of configurations; the average change is $\\mathbb{E}[\\Delta]= -0.034$ and the best observed change is $\\min\\Delta=-0.165$ (negative = improvement).",
+    "fig:pnn-boundary-2": "\\par\\noindent\\textbf{Evidence.} Using \\texttt{results/boundary_penalty_lambda_sweep_cache.csv}, across all cached (architecture,$h_1$) settings for mixture 2, the best $\\lambda$ improves mean ValNLL relative to $\\lambda=0$ in 62.5\\% of configurations; the average change is $\\mathbb{E}[\\Delta]= -0.01$ and the best observed change is $\\min\\Delta=-0.041$ (negative = improvement).",
+    "fig:pnn-boundary-3": "\\par\\noindent\\textbf{Evidence.} Using \\texttt{results/boundary_penalty_lambda_sweep_cache.csv}, across all cached (architecture,$h_1$) settings for mixture 3, the best $\\lambda$ improves mean ValNLL relative to $\\lambda=0$ in 81.25\\% of configurations; the average change is $\\mathbb{E}[\\Delta]= -0.006$ and the best observed change is $\\min\\Delta=-0.026$ (negative = improvement)."
+  }
+}

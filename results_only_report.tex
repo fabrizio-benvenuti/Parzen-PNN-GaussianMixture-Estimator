@@ -44,7 +44,7 @@ approaching zero at the optimal value of $h_1$ and increasing exponentially when
 transitioning to the oversmoothed region, the MSE still increases but less steeply.\\
 Samples per gaussian seem to have an exponential impact on reducing MSE,\\
 even if its effect is less visible than the base bandwidth one.\\
-NLL does not show the same steepness in the oversmoothing region as MSE does.
+NLL does show a lower steepness than the MSE, in the oversmoothing region.
 
 \begin{figure}[H]
 \centering
@@ -68,10 +68,11 @@ In blue: ValNLL between PW estimate and the sampled points;\\
 while varying the window size $h_1$ and the number of sampled points for each gaussian.}
 \label{fig:parzen-errors-3}
 \end{figure}
-In this graph it's see how increasing sampled points seems to have less impact on reducing MSE\\
-compared to mixture 1 and 2. NLL does also not seem to change neither the shape in the undersmoothing region\\
-nor the optimal $h_1$ value. whilst the real optimal $h_1$  for the MSE seems to change with the number of gaussians in the mixture.
-The NLL does not, causing the selected mixtures to be more oversmoothed, the more gaussians there are in the mixture.
+In this graph it's noticeable how increasing sampled points seems to have\\
+less impact on reducing MSE compared to mixture 1 and 2.\\
+It's also easibly determinable how the NLL curve does not seem to change shape nor\\
+optimal $h_1$ between mixtures as much as the MSE curve does.\\
+This causes the selected mixtures to be undersmoothed, the more gaussians there are in the mixture.
 \[
 h_{1,\mathrm{MSE}}^{\mathrm{opt}}(\mathrm{mix}_1,\mathrm{mix}_2,\mathrm{mix}_3)
 = (5.13,\;5.54,\;7,48),
@@ -85,32 +86,34 @@ h_{1,\mathrm{NLL}}^{\mathrm{opt}}(\mathrm{mix}_1,\mathrm{mix}_2,\mathrm{mix}_3)
 
 \begin{figure}[H]
 \includegraphics[width=0.95\linewidth]{figures/Parzen_overlay_mixture1.jpeg}
-\caption{Figure displaying the overlay between the real pdf of mixture 1 and its PW estimate; with the optimal parameters selected by MSE and NLL respectively.}
+\caption{Top row: pdf mixture 1 pdf;\\
+Bottom: PW estimates selected by minimizing NLL and MSE respectively.}
 \label{fig:parzen-overlay-1}
 \end{figure}
-In this graph it's noticeable how increasing the sampled points per gaussian\\
-does help in reducing the MSE; but the effect on the NLL is less visible.\\
+In this graph it's noticeable how the min MSE was selected with\\
+higher points per gaussian than the NLL ones.\\
 Therefore the selected parameters by NLL are undersmoothed compared to the MSE ones.\\
 
 \begin{figure}[H]
 \includegraphics[width=0.95\linewidth]{figures/Parzen_overlay_mixture2.jpeg}
-\caption{Figure displaying the overlay between the real pdf of mixture 2 and its PW estimate; with the optimal parameters selected by MSE and NLL respectively.}
+\caption{Top row: pdf mixture 2 pdf;\\
+Bottom: PW estimates selected by minimizing NLL and MSE respectively.}
 \label{fig:parzen-overlay-2}
 \end{figure}
-It's also noticeable how the MSE selected parameters still cannot provide high accuracy\\
-in estimating the pdf's gaussians with very different variances, this is due to the fach that $h_1$\\
-is constant across the whole input space. therefore high peaks result oversmoothed \\
-to accommodate for the wider modes and viceversa.
+It's also noticeable how the MSE selected parameters still cannot provide the best accuracy\\
+in estimating the pdf's gaussians with very different variances, this could be due to the fact that\\
+$h_n=\frac{h_1}{\sqrt{n-1}}$ does not converge to 0 so fast ???.
 
 \begin{figure}[H]
 \includegraphics[width=0.95\linewidth]{figures/Parzen_overlay_mixture3.jpeg}
-\caption{Figure displaying the overlay between the real pdf of mixture 2 and its PW estimate; with the optimal parameters selected by MSE and NLL respectively.}
+\caption{Top row: pdf mixture 3 pdf;\\
+Bottom: PW estimates selected by minimizing NLL and MSE respectively.}
 \label{fig:parzen-overlay-3}
 \end{figure}
 In this graph it's instead noticeable how NLL selected parameters\\
 may sometime lead the predicted pdf with undersmoothed regions;\\
 that approximates single peaks as two distinct modes.\\
-This could even be whilst having a low enough NLL value; this is because data points drawn\\
+This could even be whilst having a low enough NLL value; because data points drawn\\
 from those peaks will still have high likelihood even if there is a valley in between them.\\
 This effect is less visible in MSE selected parameters since the overall shape of the pdf\\
 is more important than the likelihood of single data points.
@@ -126,9 +129,9 @@ across 10 runs (PNN) and KDE for reference.}
 \end{figure}
 In this graphs it's noticeable how the PNNs tends to have a lower optimal bandwidth with respect to the PW.\\
 which could also be seen in the error subgraphs with MSE vs $h_1$,\\
-where it is obvious that the PNN seems to work better with undersmoothed KDEs.\\
-It is also marked the difference between the std of the MSE at a certain $h_1$ with deep architectures,\\
-where the result between iterations, with the same epochs and the same $h_1$ might have very different results.
+where it is obvious that the PNN seems to work better than the PW with undersmoothed KDEs.\\
+It is also marked how the the MSE's std, in the undersmoothed region,\\
+for deep architectures is quite smaller than in the single layered PNNs.
 
 \begin{figure}[H]
 \includegraphics[width=0.95\linewidth]{figures/learning_results_bandwidth_sweep_mixture2.jpeg}
@@ -141,7 +144,7 @@ In this graph it's noticable how increasing the number of gaussians in the mixtu
 \begin{itemize}
 \item Single hidden layer PNNs to perform worse than KDEs and double hidden layered PNNs, whilst beeing extremely sensitive to $h_1$ variations, especially in the undersmoothed region.
 \item The MSE mesh seems to be flattened, especially in the oversmoothed region, with respect to the mixture1.
-\item In this graph it's marked how PNNs with deeper architectures, have a high resiliency to having undersmoothed KDEs, whilst it still causes overfitting if the stopping rule is not set.
+\item In this graph it's marked how PNNs resiliency to undersmoothed KDEs increases, in the deep architectures, with the increase of gaussians inside the mixture.
 \end{itemize}
 
 \begin{figure}[H]
@@ -152,13 +155,13 @@ across 10 runs (PNN) and KDE for reference.}
 \label{fig:pnn-error-3}
 \end{figure}
 It's marked in this graphs how increasing the number of points inside the PDF (by increasing the number of gaussians inside the mixture);
-causes the Val-NLL (based onto held-out data points) to be a good metric to determine the best combination of architecture, stopping epoch and KDE bandwidth.
+causes the Val-NLL (based onto held-out data points) to be a good metric to determine the best combination of architecture, and KDE bandwidth.
 This could be seen because the mixture 3 is the one where Val-NLL points have the lowest EvalMSE, across all mixtures.\\
 
 \newpage
 \subsubsection{Parzen Neural Network Overlays}
 In this subsection are shown the overlays at minimum validation NLL (ValNLL), for each mixture and each architecture.\\
-Each column corresponds to one architecture and is displayed at its own best bandwidth $h_1$ (the one minimizing ValNLL for that architecture on the held-out split).
+Each column corresponds to one architecture and is displayed at its own best bandwidth $h_1$ (the one minimizing ValNLL for that architecture on the held-out points).
 
 \begin{figure}[H]
 \includegraphics[width=0.95\linewidth]{figures/overlays_best_mixture1.jpeg}
@@ -168,8 +171,9 @@ Bottom row: Parzen Neural Network (PNN) estimate vs ground-truth mixture PDF.}
 \label{fig:pnn-overlay-1}
 \end{figure}
 In this graph it is appreciable how PNN overlays from deep architectures have an easyer time at approximating high variance sections.\\
-and how using held-out points for validation causes selection of smoothed out overlays even if target KDEs are undersmoothed.
-
+and how using held-out points for validation causes selection of smoothed out overlays even with target KDEs are undersmoothed.\\
+??why the single hidden layered architectures chose oversmoothed KDEs\\
+and still got comparable valNLL even if it is widely different than the target pdf??
 \begin{figure}[H]
 \includegraphics[width=0.95\linewidth]{figures/overlays_best_mixture2.jpeg}
 \caption{Best overlays for mixture 2, selected by minimizing ValNLL.\\
@@ -177,8 +181,8 @@ Top row: Parzen Window (KDE) estimate vs ground-truth mixture PDF at the same se
 Bottom row: Parzen Neural Network (PNN) estimate vs ground-truth mixture PDF.}
 \label{fig:pnn-overlay-2}
 \end{figure}
-In this graphs it's instead marked how single layered PNNs perform better with oversmoothed KDEs,\\
-even if this causes poor MSE with the ground truth.????
+In this graph it's instead appreciable how, even with oversmoothed KDEs\\
+using the ValNLL as a loss function, can restore the high variance regions on the PNN estimate??.
 
 \begin{figure}[H]
 \includegraphics[width=0.95\linewidth]{figures/overlays_best_mixture3.jpeg}
@@ -188,9 +192,50 @@ Bottom row: Parzen Neural Network (PNN) estimate vs ground-truth mixture PDF.}
 \label{fig:pnn-overlay-3}
 \end{figure}
 It's marked how in this graphs the PNNs with higher layer count still have a hard time at\\
-approximating high variance peaks, close to each others in the pdf, this could be due\\
-to the fact that giving that most points are inside the $R_n$ region inside the peak, the MLE\\
-that estimates points between the peaks, as part of the peaks, still get overall low NLL because\\
+approximating high variance peaks close to each others in the pdf, this could be due\\
+to the fact that given that most points are inside the $R_n$ region inside the peak, the MLE\\
+that estimates points between the peaks, as a 'ridge' between the peaks, still gets overall low NLL because\\
 those points are few, compared to the ones inside the peaks
+
+\subsubsection{Parzen Neural Network Boundary strategy evaluation}
+In this subsection are underlined the comparisons on how using the support X of the sampled points to give\\
+penalty for estimations with 'heavy-tails' changes the shape and ValNLL of the estimates.
+\begin{figure}[H]
+\includegraphics[width=0.95\linewidth]{figures/boundary_penalty_lambda_sweep_mixture1.jpeg}
+\caption{Top Row: ValNLL for mixture 1 vs $h_1 \times {\lambda}$ for every PNN architecture\\
+Bottom Row: PNN overlay that minimizes ValNLL@$\lambda=0$\\
+vs the PNN that minimizes ValNLL $\forall\lambda$
+}
+\label{fig:pnn-boundary-1}
+\end{figure}
+In this graph is instead clear how lambda helps to bring down ValNLL especially for heavily\\
+oversmoothed gaussian mixtures. This overall helps the gaussians to have a lower ValNLL for\\
+larger $h_1$ but does not help much in decreasing $\min(\mathrm{ValNLL})$.
+In this graphs it's also visible how increasing $\lambda$ even in highly oversmoothed regions\\
+does not increase ValNLL.
+
+\begin{figure}[H]
+\includegraphics[width=0.95\linewidth]{figures/boundary_penalty_lambda_sweep_mixture2.jpeg}
+\caption{Top Row: ValNLL for mixture 2 vs $h_1 \times {\lambda}$ for every PNN architecture\\
+Bottom Row: PNN overlay that minimizes ValNLL@$\lambda=0$\\
+vs the PNN that minimizes ValNLL $\forall\lambda$
+}
+\label{fig:pnn-boundary-2}
+\end{figure}
+In this figure it's clear how heavy tails do not seem to show up as much as in the mixture 1\\
+even with $\lambda=0$ and heavy undersmoothing, this is due to the fact that increasing the number\\
+of gaussians prompts the gaussian to consider near 0 the tails with more confidence????
+
+\begin{figure}[H]
+\includegraphics[width=0.95\linewidth]{figures/boundary_penalty_lambda_sweep_mixture3.jpeg}
+\caption{Top Row: ValNLL for mixture 3 vs $h_1 \times {\lambda}$ for every PNN architecture\\
+Bottom Row: PNN overlay that minimizes ValNLL@$\lambda=0$\\
+vs the PNN that minimizes ValNLL $\forall\lambda$
+}
+\label{fig:pnn-boundary-3}
+\end{figure}
+It's clear from these graphs that mixtures with high optimal $h_1$ tend to have havier tails\\
+outside the Convex Hull that contains the sampled points, even with high $\lambda$ probably\\
+lambda should increase more to reduce this fenomenum.
 
 \end{document}

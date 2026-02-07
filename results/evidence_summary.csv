@@ -1,0 +1,16 @@
+label,addendum_preview
+fig:parzen-errors-1,"\par\noindent\textbf{Evidence.} From the sweep in \texttt{logs/pw_errors_mixture1.csv}, the global minimizers are $\arg\min_{(n,h_1)}\mathrm{MSE}=(n=174,\ h_1=5"
+fig:parzen-errors-2,"\par\noindent\textbf{Evidence.} From the sweep in \texttt{logs/pw_errors_mixture2.csv}, the global minimizers are $\arg\min_{(n,h_1)}\mathrm{MSE}=(n=193,\ h_1=5"
+fig:parzen-errors-3,"\par\noindent\textbf{Evidence.} From the sweep in \texttt{logs/pw_errors_mixture3.csv}, the global minimizers are $\arg\min_{(n,h_1)}\mathrm{MSE}=(n=169,\ h_1=7"
+fig:parzen-overlay-1,"\par\noindent\textbf{Evidence.} The configuration selected by minimizing grid MSE uses $n=174$ and $h_1=5.126$ (grid $\mathrm{MSE}=1.46e-05$), while the ValNLL-"
+fig:parzen-overlay-2,"\par\noindent\textbf{Evidence.} The configuration selected by minimizing grid MSE uses $n=193$ and $h_1=5.536$ (grid $\mathrm{MSE}=1.89e-05$), while the ValNLL-"
+fig:parzen-overlay-3,"\par\noindent\textbf{Evidence.} The configuration selected by minimizing grid MSE uses $n=169$ and $h_1=7.484$ (grid $\mathrm{MSE}=1.71e-05$), while the ValNLL-"
+fig:pnn-boundary-1,"\par\noindent\textbf{Evidence.} Using \texttt{results/boundary_penalty_lambda_sweep_cache.csv}, across all cached (architecture,$h_1$) settings for mixture 1, t"
+fig:pnn-boundary-2,"\par\noindent\textbf{Evidence.} Using \texttt{results/boundary_penalty_lambda_sweep_cache.csv}, across all cached (architecture,$h_1$) settings for mixture 2, t"
+fig:pnn-boundary-3,"\par\noindent\textbf{Evidence.} Using \texttt{results/boundary_penalty_lambda_sweep_cache.csv}, across all cached (architecture,$h_1$) settings for mixture 3, t"
+fig:pnn-error-1,"\par\noindent\textbf{Evidence.} On the bandwidth grid $h_1\in\{2, 7, 12, 16\}$ from \texttt{results/sweep_results_mixture1.json}, the KDE reference attains its "
+fig:pnn-error-2,"\par\noindent\textbf{Evidence.} On the bandwidth grid $h_1\in\{2, 7, 12, 16\}$ from \texttt{results/sweep_results_mixture2.json}, the KDE reference attains its "
+fig:pnn-error-3,"\par\noindent\textbf{Evidence.} On the bandwidth grid $h_1\in\{2, 7, 12, 16\}$ from \texttt{results/sweep_results_mixture3.json}, the KDE reference attains its "
+fig:pnn-overlay-1,\par\noindent\textbf{Evidence.} Per-architecture ValNLL selection yields (best) MLP_30-20_sigmoid_outSigmoid_Aauto at $h_1=2$ with ValNLL $=3.06$ and grid-MSE $
+fig:pnn-overlay-2,\par\noindent\textbf{Evidence.} Per-architecture ValNLL selection yields (best) MLP_30-20_sigmoid_outSigmoid_Aauto at $h_1=7$ with ValNLL $=3.649$ and grid-MSE 
+fig:pnn-overlay-3,\par\noindent\textbf{Evidence.} Per-architecture ValNLL selection yields (best) MLP_30-20_sigmoid_outReLU at $h_1=7$ with ValNLL $=3.97$ and grid-MSE $=1.31e-05

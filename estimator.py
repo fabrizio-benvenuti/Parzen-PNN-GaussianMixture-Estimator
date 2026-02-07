@@ -920,6 +920,26 @@ def run_boundary_penalty_lambda_sweep_multiseed(
                     plotter.X, plotter.Y, pdf_any,
                     cmap='viridis', alpha=0.5, label=f'λ={best_lam_any:g}'
                 )
+
+                # Convex hull of training samples on the bottom plane.
+                try:
+                    pts = np.asarray(train_xy, dtype=float)
+                    if pts.ndim == 2 and pts.shape[1] == 2 and pts.shape[0] >= 3:
+                        hull = ConvexHull(pts)
+                        hull_pts = pts[hull.vertices]
+                        # Close polygon
+                        hull_pts = np.vstack([hull_pts, hull_pts[0]])
+                        z_plane = float(ax_overlay.get_zlim()[0])
+                        hz = np.full(hull_pts.shape[0], z_plane, dtype=float)
+                        ax_overlay.plot(
+                            hull_pts[:, 0], hull_pts[:, 1], hz,
+                            color='black', linewidth=1.2, alpha=0.9,
+                            label='convex hull'
+                        )
+                except QhullError:
+                    pass
+                except Exception:
+                    pass
                 
                 ax_overlay.set_xlabel("x", fontsize=8)
                 ax_overlay.set_ylabel("y", fontsize=8)
@@ -2048,6 +2068,10 @@ def main():
         )
 
         # Annotate and highlight un-normalized min/max values at the corresponding plotted points.
+        # Collect label texts and render them together in the figure top-left so they don't
+        # visually obstruct the plotted data.
+        label_texts: list[tuple[str, str]] = []
+
         def _highlight_and_label(orig_arr, norm_arr, color, label_prefix):
             try:
                 finite_mask = np.isfinite(orig_arr)
@@ -2073,36 +2097,45 @@ def main():
                         zorder=20,
                     )
 
-                    # Place the label above the point in normalized z coordinates and offset in x for visibility
-                    text_z = z_pt + 0.18
-                    text_z = max(-0.06, min(1.12, text_z))
-                    text_x = x_pt + max(1.0, 0.02 * max(1.0, abs(x_pt)))
-
-                    # Draw a connector line from label to point
-                    ax.plot([x_pt, text_x], [y_pt, y_pt], [z_pt, text_z], color=color, linewidth=1.0, zorder=19)
-
+                    # Prepare a compact label (do NOT draw it near the point).
                     txt = (
                         f"{label_prefix} {which}={orig_arr[idx]:.3e}\n"
                         f"(n={int(x_pt)}, h1={y_pt:.3g})"
                     )
-                    ax.text(
-                        text_x,
-                        y_pt,
-                        text_z,
-                        txt,
-                        color=color,
-                        fontsize=9,
-                        bbox={'facecolor': 'white', 'alpha': 0.95, 'edgecolor': color, 'pad': 0.4},
-                        zorder=21,
-                    )
+                    label_texts.append((txt, color))
             except Exception:
                 pass
 
         _highlight_and_label(grid_errors_arr, grid_errors_norm, 'r', 'GridMSE')
         _highlight_and_label(nll_errors_arr, nll_errors_norm, 'b', 'ValNLL')
 
+        # Render collected labels in the figure top-left corner (figure coordinates)
+        # Stack labels downward with a small separation to avoid overlap.
+        try:
+            # Position labels inside the axes (2D overlay) so they sit closer to the plot.
+            top_x = 0.02
+            top_y = 0.98
+            line_h = 0.06
+            for i, (txt, color) in enumerate(label_texts):
+                # Use axes-relative 2D text for 3D axes: ax.text2D with ax.transAxes.
+                ax.text2D(
+                    top_x,
+                    top_y - i * line_h,
+                    txt,
+                    transform=ax.transAxes,
+                    color=color,
+                    fontsize=11,
+                    va='top',
+                    ha='left',
+                    bbox={'facecolor': 'white', 'alpha': 0.95, 'edgecolor': color, 'pad': 0.3},
+                    zorder=25,
+                )
+        except Exception:
+            # Fall back silently if text placement fails for any reason.
+            pass
+
         # Reset view to keep the data centered and readable
-        ax.view_init(elev=30, azim=105)
+        ax.view_init(elev=30, azim=50)
 
         ax.set_title(f"Parzen Window Errors (Mixture {mixture_idx + 1}) — normalized z")
         ax.set_xlabel("Samples per Gaussian (n)")
@@ -2110,16 +2143,17 @@ def main():
         ax.set_zlabel("Normalized error (per-metric)")
 
         # Slightly zoom out on normalized z-axis so labels remain fully visible
-        zpad = 0.3
+        # Increase padding to avoid cutting the z-axis label when saving.
+        zpad = 0.5
         ax.set_zlim(-zpad, 1.0 + zpad)
 
         # Keep legend close to the plot
         ax.legend(loc='upper right', fontsize='small', bbox_to_anchor=(0.98, 0.95))
 
-        # Increase margins to avoid cut labels.
-        fig.subplots_adjust(left=0.06, right=0.96, top=0.92, bottom=0.08)
+        # Increase margins to avoid cut labels and give room above the 3D axes.
+        fig.subplots_adjust(left=0.06, right=0.96, top=0.88, bottom=0.08)
         error_fig_filename = f"figures/Parzen_errors_mixture{mixture_idx + 1}.jpeg"
-        plt.savefig(error_fig_filename, dpi=300, bbox_inches='tight')
+        plt.savefig(error_fig_filename, dpi=300, bbox_inches='tight', pad_inches=0.3)
         plt.close(fig)
         print(f"Saved error figure: {error_fig_filename}")
 
