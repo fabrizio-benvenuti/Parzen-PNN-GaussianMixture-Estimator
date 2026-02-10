@@ -951,7 +951,7 @@ def run_boundary_penalty_lambda_sweep_multiseed(
                     fontsize=9,
                     pad=2
                 )
-                ax_overlay.view_init(elev=25, azim=215)
+                ax_overlay.view_init(elev=90, azim=215)
                 
             except Exception as e:
                 ax_overlay.text(0.5, 0.5, 0.5, f"Error: {str(e)[:50]}", ha='center', va='center', fontsize=8)
@@ -1095,17 +1095,27 @@ def _plot_best_over_h1_overlays_for_mixture(
 
         # Row 1: KDE vs truth
         ax1 = fig_best.add_subplot(2, n_arch, j + 1, projection='3d')
-        ax1.plot_surface(plotter.X, plotter.Y, real_pdf, alpha=0.45, cmap='viridis')
-        ax1.plot_surface(plotter.X, plotter.Y, estimated_pdf_kde, alpha=0.45, cmap='cividis')
+        ax1.plot_surface(plotter.X, plotter.Y, real_pdf, alpha=0.15, cmap='viridis')
+        ax1.plot_surface(plotter.X, plotter.Y, estimated_pdf_kde, alpha=0.8, cmap='magma')
         ax1.set_title(f"{label}\nKDE vs truth @ h_1={best_h1:.3g} (ValNLL={kde_val_nll:.3g})")
+        if mixture_idx != 3:
+            ax1.view_init(elev=30, azim=-50)
+        else:
+            # Mixture 3 is more complex, so use a different angle to better show the surfaces.
+            ax1.view_init(elev=45, azim=-100)
         ax1.set_xlabel("x")
         ax1.set_ylabel("y")
         ax1.set_zlabel("pdf")
 
         # Row 2: PNN vs truth
         ax2 = fig_best.add_subplot(2, n_arch, n_arch + j + 1, projection='3d')
-        ax2.plot_surface(plotter.X, plotter.Y, real_pdf, alpha=0.45, cmap='viridis')
-        ax2.plot_surface(plotter.X, plotter.Y, pnn_surface, alpha=0.45, cmap='plasma')
+        ax2.plot_surface(plotter.X, plotter.Y, real_pdf, alpha=0.15, cmap='viridis')
+        ax2.plot_surface(plotter.X, plotter.Y, pnn_surface, alpha=0.8, cmap='plasma')
+        if mixture_idx != 3:
+            ax2.view_init(elev=30, azim=-50)
+        else:
+            # Mixture 3 is more complex, so use a different angle to better show the surfaces.
+            ax2.view_init(elev=45, azim=-100)
         ax2.set_title(
             f"{label}\n"
             f"PNN vs truth @ h_1={best_h1:.3g} (best-by-ValNLL over h_1;\nValNLL={pnn_val_nll:.3g})"

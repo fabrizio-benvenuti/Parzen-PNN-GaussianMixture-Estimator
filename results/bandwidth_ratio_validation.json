@@ -1,0 +1,55 @@
+{
+  "validations": [
+    {
+      "mixture": "Mixture 1 (1 component)",
+      "n_components": 1,
+      "rho": 1.0,
+      "curvature_numerator": 0.21379665265033623,
+      "curvature_denominator": 0.21379665265033623,
+      "curvature_factor": 1.122462048309373,
+      "n_nll": 100,
+      "n_mse": 100,
+      "n_ratio": 1.0,
+      "sample_factor": 1.0,
+      "h1_nll": 2.11,
+      "h1_mse": 5.13,
+      "observed_ratio": 0.41130604288499023,
+      "predicted_ratio": 1.122462048309373,
+      "relative_error": 1.7290191032355848
+    },
+    {
+      "mixture": "Mixture 2 (3 components)",
+      "n_components": 3,
+      "rho": 1.0000000000000002,
+      "curvature_numerator": 0.20489451677777523,
+      "curvature_denominator": 0.20489451677777518,
+      "curvature_factor": 1.122462048309373,
+      "n_nll": 100,
+      "n_mse": 100,
+      "n_ratio": 1.0,
+      "sample_factor": 1.0,
+      "h1_nll": 3.19,
+      "h1_mse": 5.54,
+      "observed_ratio": 0.575812274368231,
+      "predicted_ratio": 1.122462048309373,
+      "relative_error": 0.9493541528632999
+    },
+    {
+      "mixture": "Mixture 3 (5 components)",
+      "n_components": 5,
+      "rho": 1.0,
+      "curvature_numerator": 0.08494208912267458,
+      "curvature_denominator": 0.08494208912267458,
+      "curvature_factor": 1.122462048309373,
+      "n_nll": 100,
+      "n_mse": 100,
+      "n_ratio": 1.0,
+      "sample_factor": 1.0,
+      "h1_nll": 3.75,
+      "h1_mse": 7.48,
+      "observed_ratio": 0.5013368983957219,
+      "predicted_ratio": 1.122462048309373,
+      "relative_error": 1.238937632361096
+    }
+  ]
+}

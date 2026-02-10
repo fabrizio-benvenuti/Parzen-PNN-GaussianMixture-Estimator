@@ -1,0 +1,18 @@
+% Spurious Peak Predictions for Best Configurations
+\begin{table}[h]
+\centering
+\begin{tabular}{lccccc}
+\hline
+Mixture & Selection & $n$ & $h_1$ & $S_{\mathrm{global}}$ & Interpretation \\
+\hline
+Mixture 1 & MSE & 174 & 5.13 & 0.000 & No spurious peaks (clean) \\
+Mixture 1 & ValNLL & 70 & 2.11 & 0.000 & No spurious peaks (clean) \\
+Mixture 2 & MSE & 193 & 5.54 & 0.000 & No spurious peaks (clean) \\
+Mixture 2 & ValNLL & 70 & 3.19 & 0.000 & No spurious peaks (clean) \\
+Mixture 3 & MSE & 169 & 7.48 & 0.000 & No spurious peaks (clean) \\
+Mixture 3 & ValNLL & 78 & 3.75 & 0.000 & No spurious peaks (clean) \\
+\hline
+\end{tabular}
+\caption{Predicted spurious peak scores for best KDE configurations. Scores $> 1.5$ indicate severe spurious peaks.}
+\label{tab:spurious_predictions}
+\end{table}

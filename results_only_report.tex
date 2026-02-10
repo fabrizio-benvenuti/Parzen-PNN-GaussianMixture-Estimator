@@ -31,7 +31,7 @@ the input parameters of the Parzen Window estimator.\\
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.8\linewidth]{figures/Parzen_errors_mixture1.jpeg}
+\includegraphics[width=0.6\linewidth]{figures/Parzen_errors_mixture1.jpeg}
 \caption{In red: MSE between the mixture 1 pdf and its PW estimate\\
 In blue: ValNLL between PW estimate and the sampled points;\\
 while varying the window size $h_1$ and the number of sampled points for each gaussian.}
@@ -39,12 +39,10 @@ while varying the window size $h_1$ and the number of sampled points for each ga
 \end{figure}
 \newpage
 \centering
-In this graph it's marked how the MSE does not vary linearly with window size;\\
-approaching zero at the optimal value of $h_1$ and increasing exponentially when undersmoothing occurs;\\
-transitioning to the oversmoothed region, the MSE still increases but less steeply.\\
-Samples per gaussian seem to have an exponential impact on reducing MSE,\\
-even if its effect is less visible than the base bandwidth one.\\
-NLL does show a lower steepness than the MSE, in the oversmoothing region.
+It was noted that the MSE forms an asymmetric curve: steeply rising when the window narrows\\
+(sharp kernels cause high variance in estimates), but gradually rising when widening\\
+(over-smoothed predictions flatten peaks). Increasing sampled points per Gaussian substantially\\
+improves accuracy, though gains diminish with additional samples.\\
 
 \begin{figure}[H]
 \centering
@@ -54,10 +52,10 @@ In blue: ValNLL between PW estimate and the sampled points;\\
 while varying the window size $h_1$ and the number of sampled points for each gaussian.}
 \label{fig:parzen-errors-2}
 \end{figure}
-In this graph it's marked how the MSE steepnes in the oversmoothed region is less pronounced\\
-compared to mixture 1; this is probably due to the fact that oversmothing the probability mass causes less error \\
-when the modes are closer together; whilst, in the mixture 1, overmoothing causes the probability mass to fall\\
-on the tails; which generates more error.\\
+It was noted that mixture 2 shows less steep MSE growth in the oversmoothed region compared to mixture 1.\\
+This occurs because modes that are close together create a smoother combined density with gentler curvature transitions.\\
+When modes are well-separated, they leave pronounced gaps in between, causing sharp density changes and stronger local curvature.\\
+Such curvature variations directly determine how much error accumulates as the estimate becomes progressively oversmoothed.\\
 
 \begin{figure}[H]
 \centering
@@ -68,11 +66,9 @@ In blue: ValNLL between PW estimate and the sampled points;\\
 while varying the window size $h_1$ and the number of sampled points for each gaussian.}
 \label{fig:parzen-errors-3}
 \end{figure}
-In this graph it's noticeable how increasing sampled points seems to have\\
-less impact on reducing MSE compared to mixture 1 and 2.\\
-It's also easibly determinable how the NLL curve does not seem to change shape nor\\
-optimal $h_1$ between mixtures as much as the MSE curve does.\\
-This causes the selected mixtures to be undersmoothed, the more gaussians there are in the mixture.
+It was noticed that Mixture 3’s overlapping Gaussians create a smoother density requiring larger\\
+MSE-optimal bandwidth, while NLL remains fixated on sharp peaks at sample locations, producing increasingly\\
+suboptimal (undersmoothed) density estimates as mixture complexity increases.
 \[
 h_{1,\mathrm{MSE}}^{\mathrm{opt}}(\mathrm{mix}_1,\mathrm{mix}_2,\mathrm{mix}_3)
 = (5.13,\;5.54,\;7,48),
@@ -86,38 +82,37 @@ h_{1,\mathrm{NLL}}^{\mathrm{opt}}(\mathrm{mix}_1,\mathrm{mix}_2,\mathrm{mix}_3)
 
 \begin{figure}[H]
 \includegraphics[width=0.95\linewidth]{figures/Parzen_overlay_mixture1.jpeg}
-\caption{Top row: pdf mixture 1 pdf;\\
-Bottom: PW estimates selected by minimizing NLL and MSE respectively.}
+\caption{Top row: Mixture 1 pdf;\\
+Bottom: PW estimate overlays selected by minimizing NLL and MSE respectively.}
 \label{fig:parzen-overlay-1}
 \end{figure}
-In this graph it's noticeable how the min MSE was selected with\\
-higher points per gaussian than the NLL ones.\\
-Therefore the selected parameters by NLL are undersmoothed compared to the MSE ones.\\
+It was marked how minimum MSE selected more points per gaussian compared to NLL, suggesting\\
+NLL parameters lean toward undersmoothing. This seems to arise because ValNLL\\
+optimization encourages higher peacks where data samples reside, whilst\\
+uniform weighting naturally tends toward smoother overall shapes.\\
+The divergence in optimal sample points also seems to amplify these bandwidth disparities.\\
 
 \begin{figure}[H]
 \includegraphics[width=0.95\linewidth]{figures/Parzen_overlay_mixture2.jpeg}
-\caption{Top row: pdf mixture 2 pdf;\\
-Bottom: PW estimates selected by minimizing NLL and MSE respectively.}
+\caption{Top row: Mixture 2 pdf;\\
+Bottom: PW estimate overlays  selected by minimizing NLL and MSE respectively.}
 \label{fig:parzen-overlay-2}
 \end{figure}
-It's also noticeable how the MSE selected parameters still cannot provide the best accuracy\\
-in estimating the pdf's gaussians with very different variances, this could be due to the fact that\\
-$h_n=\frac{h_1}{\sqrt{n-1}}$ does not converge to 0 so fast ???.
+It's also noticeable how in this mixture that MSE selected parameters still cannot provide high accuracy\\
+in estimating low variance modes that are close to high variance ones,\\
+this causes NLL selected overlays to better approximate these regions while still causing overhoots\\
+to the actual spikes and overall higher variance in the estimate; causing a lower MSE.
 
 \begin{figure}[H]
 \includegraphics[width=0.95\linewidth]{figures/Parzen_overlay_mixture3.jpeg}
-\caption{Top row: pdf mixture 3 pdf;\\
-Bottom: PW estimates selected by minimizing NLL and MSE respectively.}
+\caption{Top row: Mixture 3 pdf;\\
+Bottom: PW estimate overlays selected by minimizing NLL and MSE respectively.}
 \label{fig:parzen-overlay-3}
 \end{figure}
-In this graph it's instead noticeable how NLL selected parameters\\
-may sometime lead the predicted pdf with undersmoothed regions;\\
-that approximates single peaks as two distinct modes.\\
-This could even be whilst having a low enough NLL value; because data points drawn\\
-from those peaks will still have high likelihood even if there is a valley in between them.\\
-This effect is less visible in MSE selected parameters since the overall shape of the pdf\\
-is more important than the likelihood of single data points.
-
+It was noted that kernels narrower than sample spacing create isolated peaks failing to merge into unified modes,\\
+generating spurious extra peaks. When kernel width falls below inter-sample distances,\\
+each kernel becomes independent, no longer contributing smoothly to adjacent peaks.\\
+MSE-optimized estimates cannot suppress this since the error metric only measures integrated error, allowing local over-sharpening at sample locations.
 \subsection{Parzen Neural Network}
 \subsubsection{Parzen Neural Network Errors}
 \begin{figure}[H]
@@ -142,7 +137,8 @@ across 10 runs (PNN) and KDE for reference.}
 \end{figure}
 In this graph it's noticable how increasing the number of gaussians in the mixture causes:
 \begin{itemize}
-\item Single hidden layer PNNs to perform worse than KDEs and double hidden layered PNNs, whilst beeing extremely sensitive to $h_1$ variations, especially in the undersmoothed region.
+\item It does not seem to make much difference for both deep and shallow architectures in the output layer\\
+is constructed with ReLus or Sigmoids with variable amplitude
 \item The MSE mesh seems to be flattened, especially in the oversmoothed region, with respect to the mixture1.
 \item In this graph it's marked how PNNs resiliency to undersmoothed KDEs increases, in the deep architectures, with the increase of gaussians inside the mixture.
 \end{itemize}

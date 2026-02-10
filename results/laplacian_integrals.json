@@ -1,0 +1,26 @@
+[
+  {
+    "name": "Mixture 1 (1 component, unimodal)",
+    "n_components": 1,
+    "I_Delta_p_sq": 0.21380768253721516,
+    "I_Delta_p_sq_over_p": 5.926105070040942,
+    "rho": 0.03607895574077934,
+    "predicted_ratio_curvature": 0.6452291690606072
+  },
+  {
+    "name": "Mixture 2 (3 components, trimodal)",
+    "n_components": 3,
+    "I_Delta_p_sq": 0.2065471247839822,
+    "I_Delta_p_sq_over_p": 8.718110590736961,
+    "rho": 0.023691730293423856,
+    "predicted_ratio_curvature": 0.6015491663601943
+  },
+  {
+    "name": "Mixture 3 (5 components, 5-modal)",
+    "n_components": 5,
+    "I_Delta_p_sq": 0.08544702361174895,
+    "I_Delta_p_sq_over_p": 5.9315510294950595,
+    "rho": 0.014405511001567305,
+    "predicted_ratio_curvature": 0.5536811998331423
+  }
+]

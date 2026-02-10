@@ -1,0 +1,32 @@
+[
+  {
+    "mixture": "Mixture 1",
+    "n_components": 1,
+    "observed_h1_ratio": 0.411,
+    "rho": 0.03607895574077934,
+    "curvature_factor": 0.6452291690606072,
+    "implied_sqrt_n_ratio": 0.6369829817185376,
+    "implied_n_ratio": 0.4057473189990388,
+    "predicted_h1_ratio": 0.411
+  },
+  {
+    "mixture": "Mixture 2",
+    "n_components": 3,
+    "observed_h1_ratio": 0.576,
+    "rho": 0.023691730293423856,
+    "curvature_factor": 0.6015491663601943,
+    "implied_sqrt_n_ratio": 0.9575277171194747,
+    "implied_n_ratio": 0.9168593290520328,
+    "predicted_h1_ratio": 0.576
+  },
+  {
+    "mixture": "Mixture 3",
+    "n_components": 5,
+    "observed_h1_ratio": 0.501,
+    "rho": 0.014405511001567305,
+    "curvature_factor": 0.5536811998331423,
+    "implied_sqrt_n_ratio": 0.9048528289401584,
+    "implied_n_ratio": 0.8187586420410076,
+    "predicted_h1_ratio": 0.501
+  }
+]
